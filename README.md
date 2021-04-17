@@ -1,1 +1,1 @@
-# icy_ship_path_planning
+# Path Planning for Autonomous Ships in Icy Conditions
