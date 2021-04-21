@@ -15,11 +15,11 @@ patch = plt.Circle((5, -5), 0.75, fc='y')
 
 velocity = (0,10)
 w, h = 10, 20
-vs = np.array([[0,3], [1,1], [1,-2], [-1,-2], [-1,1]])
-vs_pymunk = [(0,3), (1,1), (1,-2), (-1,-2), (-1,1)]
+vs = np.array([[0,2], [0.5,1], [0.5,-1], [-0.5,-1], [-0.5,1]])
+vs_pymunk = [(0,2), (0.5,1), (0.5,-1), (-0.5,-1), (-0.5,1)]
 #print(np.asarray(vs_pymunk))
 b = pymunk.Body()
-b.position = 1, 2
+b.position = 1, 1
 b.velocity = Vec2d(0,10)
 poly_good = pymunk.Poly(b, vs_pymunk)
 
