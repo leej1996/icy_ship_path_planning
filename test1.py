@@ -6,7 +6,7 @@ import dubins
 turning_radius = 0.99999
 
 fig = plt.figure()
-ax = plt.axes(xlim=(-5, 0), ylim=(0, 10))
+ax = plt.axes(xlim=(0, 10), ylim=(0, 10))
 ax.set_aspect("equal")
 
 cardinal_swaths = dict()
@@ -57,13 +57,13 @@ test_set = [(0, 4, 3)]
 R = np.asarray(
     [[math.cos(math.pi / 2), -math.sin(math.pi / 2), 0], [math.sin(math.pi / 2), math.cos(math.pi / 2), 0], [0, 0, 1]])
 start_pos = (5, 5, 1)
-i = 0
 for e in edge_set_ordinal:
+    heading = start_pos[2] * 45
     array = np.zeros((11, 11))
     swath = [[start_pos[0], start_pos[1]]]
-    e = R @ np.asarray(e).T
-    dubins_path = dubins.shortest_path((0, 0, math.radians(90)),
-        (e[0], e[1], math.radians((e[2] + 2) * 45) % (2 * math.pi)), turning_radius)
+    rotated_e = R @ np.asarray(e).T + np.array([start_pos[0], start_pos[1], 0])
+    dubins_path = dubins.shortest_path((start_pos[0], start_pos[1], math.radians((start_pos[2] + 2) * 45)),
+        (rotated_e[0], rotated_e[1], math.radians((rotated_e[2] + 2) * 45) % (2 * math.pi)), turning_radius)
     configurations, _ = dubins_path.sample_many(0.01)
     # 0.01
     x = list()
@@ -78,13 +78,12 @@ for e in edge_set_ordinal:
 
     for pair in swath:
         array[pair[1], pair[0]] = 1
-    cardinal_swaths[i, 0] = array
-    cardinal_swaths[i, 90] = np.flip(array.T, 1)  # Rotate 90 degrees CCW
-    cardinal_swaths[i, 180] = np.flip(np.flip(array, 1), 0)  # Rotate 180 degrees CCW
-    cardinal_swaths[i, 270] = np.flip(array.T, 0)  # Rotate 270 degrees CCW
-    i += 1
+    cardinal_swaths[e, 0 + heading] = array
+    cardinal_swaths[e, 90 + heading] = np.flip(array.T, 1)  # Rotate 90 degrees CCW
+    cardinal_swaths[e, 180 + heading] = np.flip(np.flip(array, 1), 0)  # Rotate 180 degrees CCW
+    cardinal_swaths[e, 270 + heading] = np.flip(array.T, 0)  # Rotate 270 degrees CCW
     ax.plot(x, y)
 
-#plt.imshow(cardinal_swaths[0,0])
+plt.imshow(cardinal_swaths[(0, 3, 2),90])
 
 plt.show()

@@ -26,16 +26,24 @@ class CustomPriorityQueue(PriorityQueue):
 
 
 def generate_swath(edge_set, turning_radius, heading):
+    '''
+    Will have key of (edge, start heading)
+    '''
     swath_set = dict()
-    i = 0
-    R = np.asarray([[math.cos(math.pi / 2), -math.sin(math.pi / 2), 0], [math.sin(math.pi / 2), math.cos(math.pi / 2), 0], [0, 0, 1]])
+    R = np.asarray(
+        [[math.cos(math.pi / 2), -math.sin(math.pi / 2), 0], [math.sin(math.pi / 2), math.cos(math.pi / 2), 0],
+         [0, 0, 1]])
     start_pos = (5, 5, heading)
+    # fig = plt.figure()
+    # ax = plt.axes(xlim=(0, 10), ylim=(0, 10))
+    # ax.set_aspect("equal")
     for e in edge_set:
         array = np.zeros((11, 11))
-        swath = [[0, 0]]
-        e = R @ np.asarray(e).T
-        dubins_path = dubins.shortest_path((0, 0, math.radians(90)),
-            (e[0], e[1], math.radians((e[2] + 2) * 45) % (2 * math.pi)), turning_radius)
+        swath = [[start_pos[0], start_pos[1]]]
+        rot_e = R @ np.asarray(e).T + np.array([start_pos[0], start_pos[1], 0])
+        dubins_path = dubins.shortest_path((start_pos[0], start_pos[1], math.radians((start_pos[2] + 2) * 45)),
+                                           (rot_e[0], rot_e[1], math.radians((rot_e[2] + 2) * 45) % (2 * math.pi)),
+                                           turning_radius)
         configurations, _ = dubins_path.sample_many(0.01)
         x = list()
         y = list()
@@ -49,135 +57,72 @@ def generate_swath(edge_set, turning_radius, heading):
 
         for pair in swath:
             array[pair[1], pair[0]] = 1
-        swath_set[i, 0] = array
-        swath_set[i, 90] = np.flip(array.T, 1)  # Rotate 90 degrees CCW
-        swath_set[i, 180] = np.flip(np.flip(array, 1), 0)  # Rotate 180 degrees CCW
-        swath_set[i, 270] = np.flip(array.T, 0)  # Rotate 270 degrees CCW
-        i += 1
+        # ax.plot(x,y)
+        swath_set[e, 0 + heading] = array
+        swath_set[e, 2 + heading] = np.flip(array.T, 1)  # Rotate 90 degrees CCW
+        swath_set[e, 4 + heading] = np.flip(np.flip(array, 1), 0)  # Rotate 180 degrees CCW
+        swath_set[e, 6 + heading] = np.flip(array.T, 0)  # Rotate 270 degrees CCW
 
     return swath_set
 
 
 def get_swath(e, n, start_pos, swath_set):
-    goal_pos = Concat(start_pos, e)
-    # check if goal pos is within bounds
-    if goal_pos[0] >= n or goal_pos[0] < 0 or goal_pos[1] >= n or goal_pos[1] < 0:
-        return False, False
-    dx = goal_pos[0] - start_pos[0]
-    dy = goal_pos[1] - start_pos[1]
+    print("start", start_pos, sep=" ")
+    print("edge", e, sep=" ")
     swath = np.zeros((n, n))
-    heading = start_pos[2]
-    if heading % 90 == 0:
-        # Cardinal Swaths
-        while not np.array_equal(start_pos[0:2], goal_pos[0:2]):
-            if heading == 90 or heading == 270:
-                if dx < 0:
-                    start_pos[0] = start_pos[0] - 1
-                    swath[start_pos[1], start_pos[0]] = 1
-                    dx = dx + 1
-                elif dx > 0:
-                    start_pos[0] = start_pos[0] + 1
-                    swath[start_pos[1], start_pos[0]] = 1
-                    dx = dx - 1
+    heading = int(start_pos[2])
+    print("heading", heading, sep=" ")
+    swath1 = swath_set[e, heading]
 
-                if dy < 0:
-                    start_pos[1] = start_pos[1] - 1
-                    swath[start_pos[1], start_pos[0]] = 1
-                    dy = dy + 1
-                elif dy > 0:
-                    start_pos[1] = start_pos[1] + 1
-                    swath[start_pos[1], start_pos[0]] = 1
-                    dy = dy - 1
-            elif heading == 0 or heading == 180:
-                if dy < 0:
-                    start_pos[1] = start_pos[1] - 1
-                    swath[start_pos[1], start_pos[0]] = 1
-                    dy = dy + 1
-                elif dy > 0:
-                    start_pos[1] = start_pos[1] + 1
-                    swath[start_pos[1], start_pos[0]] = 1
-                    dy = dy - 1
+    swath_size = swath1.shape[0]
+    min_y = start_pos[1] - 5
+    max_y = start_pos[1] + 6
+    min_x = start_pos[0] - 5
+    max_x = start_pos[0] + 6
+    # print(min_y, max_y, min_x, max_x, "overhangs", sep=" ")
+    # Too far to the right
+    if max_x >= n:
+        overhang = max_x - (n - 1)
+        swath1 = np.delete(swath1, slice(swath_size - overhang, swath_size), axis=1)
+        max_x = n - 1
+    # Too far to the left
+    elif min_x < 0:
+        overhang = abs(min_x)
+        swath1 = np.delete(swath1, slice(0, overhang), axis=1)
+        min_x = 0
+    # Too close to the top
+    if max_y >= n:
+        overhang = max_y - (n - 1)
+        swath1 = np.delete(swath1, slice(swath_size - overhang, swath_size), axis=0)
+        max_y = n - 1
+    # Too close to the bottom
+    elif min_y < 0:
+        overhang = abs(min_y)
+        swath1 = np.delete(swath1, slice(0, overhang), axis=0)
+        min_y = 0
+    swath[min_y:max_y, min_x:max_x] = swath1
 
-                if dx < 0:
-                    start_pos[0] = start_pos[0] - 1
-                    swath[start_pos[1], start_pos[0]] = 1
-                    dx = dx + 1
-                elif dx > 0:
-                    start_pos[0] = start_pos[0] + 1
-                    swath[start_pos[1], start_pos[0]] = 1
-                    dx = dx - 1
-    else:
-        # Ordinal Swaths
-        if e[2] == 0:
-            # straight
-            swath1 = swath_set[("straight", heading)]
-        elif e[2] == 45:
-            # left 45
-            swath1 = swath_set[("left_turn_45", heading)]
-        elif e[2] == 90:
-            # left 90
-            swath1 = swath_set[("left_turn", heading)]
-        elif e[2] == 315:
-            # right 45
-            swath1 = swath_set[("right_turn_45", heading)]
-        else:
-            # right 90
-            swath1 = swath_set[("right_turn", heading)]
-
-        swath_size = swath1.shape[0]
-        min_y = start_pos[1] - 3
-        max_y = start_pos[1] + 4
-        min_x = start_pos[0] - 3
-        max_x = start_pos[0] + 4
-        # Too far to the right
-        if start_pos[0] + 4 >= n:
-            overhang = start_pos[0] + 4 - (n - 1)
-            swath1 = np.delete(swath1, slice(swath_size - overhang, swath_size), axis=1)
-            max_x = n - 1
-        # Too far to the left
-        elif start_pos[0] - 3 < 0:
-            overhang = abs(start_pos[0] - 3)
-            swath1 = np.delete(swath1, slice(0, overhang), axis=1)
-            min_x = 0
-        # Too close to the top
-        if start_pos[1] + 4 >= n:
-            overhang = start_pos[1] + 4 - (n - 1)
-            swath1 = np.delete(swath1, slice(swath_size - overhang, swath_size), axis=0)
-            max_y = n - 1
-        # Too close to the bottom
-        elif start_pos[1] - 3 < 0:
-            overhang = abs(start_pos[1] - 3)
-            swath1 = np.delete(swath1, slice(0, overhang), axis=0)
-            min_y = 0
-        swath[min_y:max_y, min_x:max_x] = swath1
-
-    return swath, goal_pos
+    return swath
 
 
 def Concat(x, y):
     """
     given two points x,y in the lattice, find the concatenation x + y
     """
-    p1 = [x[0], x[1], x[2]]
-    p2 = [y[0], y[1], y[2]]
-    if p1[2] == 0 or p1[2] == 45:
-        R = np.eye(3)
-    else:
-        if p1[2] == 135 or p1[2] == 225 or p1[2] == 315:
-            card = 45
-        else:
-            card = 0
-        heading = math.radians(p1[2] - card)
-        R = np.asarray(
-            [[math.cos(heading), -math.sin(heading), 0], [math.sin(heading), math.cos(heading), 0], [0, 0, 1]])
+
+    p1 = [x[0], x[1], x[2] * math.pi / 4]
+    p2 = [y[0], y[1], y[2] * math.pi / 4]
+
+    R = np.asarray([[math.cos(p1[2] + math.pi / 2), -math.sin(p1[2] + math.pi / 2), 0],
+                    [math.sin(p1[2] + math.pi / 2), math.cos(p1[2] + math.pi / 2), 0], [0, 0, 1]])
     multiplication = np.matmul(R, np.transpose(np.asarray(p2)))
     result = np.asarray(p1) + multiplication
     heading = result[2]
+    while heading >= 2 * math.pi:
+        heading = heading - 2 * math.pi
+    heading = heading / (math.pi / 4)
 
-    while heading >= 360:
-        heading = heading - 360
-
-    return (int(result[0]), int(result[1]), round(heading))
+    return (int(result[0]), int(result[1]), int(round(heading)))
 
 
 def is_point_in_set(point, set):
@@ -200,13 +145,23 @@ def heuristic(p_initial, p_final, turning_radius):
     """
     The Dubins' distance from initial to final points.
     """
-    p1 = (p_initial[0], p_initial[1], math.radians((p_initial[2] + 90) % 360))
-    p2 = (p_final[0], p_final[1], math.radians((p_final[2] + 90) % 360))
+    p1 = (p_initial[0], p_initial[1], math.radians((p_initial[2] * 45 + 90) % 360))
+    p2 = (p_final[0], p_final[1], math.radians((p_final[2] * 45 + 90) % 360))
     path = dubins.shortest_path(p1, p2, turning_radius)
     return path.path_length()
 
 
-def a_star(start, goal, turning_radius, n, cost_map, card_edge_set, ord_edge_set, swath_set):
+def near_obstacle(node, list_of_obstacles):
+    for obs in list_of_obstacles:
+        # check if ship is within radius + 5 squares of the center of obstacle, then do swath
+        #print("distance", dist(node, (obs[1],obs[0])),sep=" " )
+        #print(obs[2] + 5)
+        if dist(node, (obs[1],obs[0])) < obs[2] + 5:
+            return True
+    return False
+
+
+def a_star(start, goal, turning_radius, n, cost_map, card_edge_set, ord_edge_set, cardinal_swath, ordinal_swath, list_of_obstacles):
     # theta is measured ccw from y axis
     openSet = [start]
     closedSet = []
@@ -224,6 +179,7 @@ def a_star(start, goal, turning_radius, n, cost_map, card_edge_set, ord_edge_set
     # priority queue of all visited node f scores
     f_score_open_sorted = CustomPriorityQueue()
     f_score_open_sorted.put((start, f_score[start]))
+    # will keep track of cost between adjacent nodes
     counter = 0
     while np.shape(openSet)[0] != 0:
         # node[0] = x position
@@ -232,8 +188,10 @@ def a_star(start, goal, turning_radius, n, cost_map, card_edge_set, ord_edge_set
         # node = openSet.pop()
         node = f_score_open_sorted.get()[0]
         print("Counter: ", counter, sep=" ")
+        print("node", node, sep=" ")
 
         if node == goal:
+            print("Found path")
             path = list()
             cameFrom[goal] = cameFrom[node]
             path.append(goal)
@@ -241,29 +199,88 @@ def a_star(start, goal, turning_radius, n, cost_map, card_edge_set, ord_edge_set
                 pred = cameFrom[node]
                 node = pred
                 path.append(node)
-            return (True, f_score[goal], path, closedSet)
+
+            print(len(path))
+            path.reverse()  # path: start -> goal
+
+            print("Attempt Smoothing")
+            prev = dict()
+            smooth_cost = dict()
+            for vi in path:
+                smooth_cost[vi] = float('inf')
+                prev[vi] = None
+            smooth_cost[path[0]] = 0
+            i = 0
+            for vi in path:
+                for vj in path[i + 1:]:
+                    # determine cost between node vi and vj
+                    swath = [[vi[0], vi[1]]]
+                    swath_cost = 0
+                    dubins_path = dubins.shortest_path((vi[0], vi[1], math.radians((vi[2] + 2) * 45) % (2 * math.pi)),
+                                                       (vj[0], vj[1], math.radians((vj[2] + 2) * 45) % (2 * math.pi)),
+                                                       turning_radius)
+                    configurations, _ = dubins_path.sample_many(0.2)
+                    for config in configurations:
+                        x_cell = int(round(config[0]))
+                        y_cell = int(round(config[1]))
+                        theta = config[2]
+                        if [x_cell, y_cell] not in swath:
+                            swath.append([x_cell, y_cell])
+                            swath_cost += cost_map[y_cell, x_cell]
+
+                    adj_cost = swath_cost + dubins_path.path_length()
+                    if smooth_cost[vi] + adj_cost < smooth_cost[vj]:
+                        smooth_cost[vj] = smooth_cost[vi] + adj_cost
+                        prev[vj] = vi
+                i += 1
+
+            smooth_path = list()
+            smooth_path.append(goal)
+            node = goal
+            while node != start:
+                node = prev[node]
+                smooth_path.append(node)
+            print("length", len(smooth_path), sep=" ")
+            print(smooth_path)
+            print(smooth_cost[goal])
+
+            return (True, f_score[goal], smooth_path, closedSet)
 
         openSet.remove(node)
         closedSet.append(node)
 
-        if node[2] % 90 == 0:
+        if (node[2] * 45) % 90 == 0:
+            print("cardinal")
             edge_set = card_edge_set
+            swath_set = cardinal_swath
         else:
+            print("ordinal")
             edge_set = ord_edge_set
+            swath_set = ordinal_swath
+
         for e in edge_set:
-            swath, neighbour = get_swath(e, n, np.array(node), swath_set)
+            neighbour = Concat(node, e)
+
             if not neighbour:
                 continue
 
-            # check if point is in closed set
-            neighbour_in_closed_set, closed_set_neighbour = is_point_in_set(neighbour, closedSet)
-            if neighbour_in_closed_set:
-                continue
-
             if 0 < neighbour[0] < n and 0 < neighbour[1] < n:
-                swath = swath.astype(bool)
-                mask = cost_map[swath]
-                cost = np.sum(mask) + heuristic(node, neighbour, turning_radius)
+                # check if point is in closed set
+                neighbour_in_closed_set, closed_set_neighbour = is_point_in_set(neighbour, closedSet)
+                if neighbour_in_closed_set:
+                    continue
+
+                if near_obstacle(node, list_of_obstacles):
+                    print("calculate_swath")
+                    swath = get_swath(e, n, np.array(node), swath_set)
+                    swath = swath.astype(bool)
+                    mask = cost_map[swath]
+                    swath_cost = np.sum(mask)
+                else:
+                    swath_cost = 0
+                cost = swath_cost + heuristic(node, neighbour, turning_radius)
+                # cost[(node, neighbour)] = np.sum(mask) + heuristic(node, neighbour, turning_radius)
+                #print("cost", cost, sep=" ")
                 temp_g_score = g_score[node] + cost
                 neighbour_in_open_set, open_set_neighbour = is_point_in_set(neighbour, openSet)
                 if not neighbour_in_open_set:
@@ -318,8 +335,8 @@ def main():
     n = 71
     r = 7  # radius of circular turns
     d = 1  # how far robot goes in straight line
-    theta = 0  # measured clockwise from y axis (up)
-    turning_radius = 1.99
+    theta = 0  # Possible values: 0 - 7, each number should be multiplied by 45 degrees (measured CCW from up)
+    turning_radius = 0.999
     scale = 0.5
     start_pos = (math.floor(n / 2), 10, theta)
     # start_pos = (65,0,0)
@@ -331,7 +348,8 @@ def main():
     # list_of_obstacles = np.array([[35,35,15]])
     # list_of_obstacles = np.array([[5,5,5], [20,30,5], [50,40,5], [10,60,5], [40,10,5], [30,30,5],[30,50,5]])
     list_of_obstacles = np.array(
-        [[30, 5, 5], [30, 16, 5], [30, 27, 5], [30, 38, 5], [30, 49, 5], [30, 60, 5], [30, 68, 2]])
+        [[30, 5, 5], [30, 16, 5], [30, 27, 5], [30, 38, 5], [30, 49, 5], [30, 60, 5]])
+    # list_of_obstacles = list()
     for row in list_of_obstacles:
         cost_map = cm.create_circle(row, cost_map, scale)
 
@@ -377,14 +395,13 @@ def main():
                         (5, 0, 1),
                         (5, 0, 7)]
 
-    cardinal_swaths = generate_swath(edge_set_cardinal, turning_radius, 0)
     ordinal_swaths = generate_swath(edge_set_ordinal, turning_radius, 1)
-    #ordinal_swaths = get_ordinal_swaths()
-
-    # start_pos_test = (math.floor(n / 2), math.floor(n / 2))
+    # plt.imshow(ordinal_swaths[(3, 1, 1), 5])
+    # plt.show()
+    cardinal_swaths = generate_swath(edge_set_cardinal, turning_radius, 0)
 
     worked, L, edge_path, nodes_visited = a_star(start_pos, goal_pos, turning_radius, n, cost_map, edge_set_cardinal,
-                                                 edge_set_ordinal, ordinal_swaths)
+                                                 edge_set_ordinal, cardinal_swaths, ordinal_swaths, list_of_obstacles)
 
     fig1, ax1 = plt.subplots(2, 1)
 
@@ -397,9 +414,10 @@ def main():
         for i in range(np.shape(PATH)[0] - 1):
             P1 = PATH[i]
             P2 = PATH[i + 1]
-            dubins_path = dubins.shortest_path((P1[0], P1[1], math.radians(P1[2] + 90) % (2 * math.pi)),
-                                               (P2[0], P2[1], math.radians(P2[2] + 90) % (2 * math.pi)), turning_radius)
-            configurations, _ = dubins_path.sample_many(0.2)
+            dubins_path = dubins.shortest_path((P1[0], P1[1], math.radians(P1[2] * 45 + 90) % (2 * math.pi)),
+                                               (P2[0], P2[1], math.radians(P2[2] * 45 + 90) % (2 * math.pi)),
+                                               turning_radius)
+            configurations, _ = dubins_path.sample_many(0.01)
             # 0.01
             x = list()
             y = list()
@@ -415,7 +433,7 @@ def main():
 
         path = np.delete(path, 0, 1)
         print(np.shape(path))
-        # np.savetxt("nodes.csv", path, delimiter=",")
+
         for obs in list_of_obstacles:
             ax1[0].add_patch(patches.Circle((obs[1], obs[0]), obs[2], fill=False))
     else:
@@ -502,15 +520,15 @@ def main():
         return []
 
     def animate(dt, ship_patch, ship, circles, patch_list):
-        print(dt)
+        # print(dt)
         # 20 ms step size
         for x in range(10):
             space.step(2 / 100 / 10)
 
         ship_pos = (ship.body.position.x, ship.body.position.y)
-        print("path_node:", ship.path_pos, sep=" ")
-        print("ship pos:", ship_pos, sep=" ")
-        print("path pos:", path[ship.path_pos, :], sep=" ")
+        # print("path_node:", ship.path_pos, sep=" ")
+        # print("ship pos:", ship_pos, sep=" ")
+        # print("path pos:", path[ship.path_pos, :], sep=" ")
         # determine which part of the path ship is on and get translational/angular velocity for ship
         if ship.path_pos < np.shape(vel_path)[0]:
             ship.body.velocity = Vec2d(vel_path[ship.path_pos, 0], vel_path[ship.path_pos, 1])
