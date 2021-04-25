@@ -161,11 +161,54 @@ def near_obstacle(node, list_of_obstacles):
     return False
 
 
-def a_star(start, goal, turning_radius, n, cost_map, card_edge_set, ord_edge_set, cardinal_swath, ordinal_swath, list_of_obstacles):
+def path_smoothing(path, cost_map, turning_radius, start, goal):
+    print("Attempt Smoothing")
+    prev = dict()
+    smooth_cost = dict()
+    for vi in path:
+        smooth_cost[vi] = float('inf')
+        prev[vi] = None
+    smooth_cost[path[0]] = 0
+    i = 0
+    for vi in path:
+        for vj in path[i + 1:]:
+            # determine cost between node vi and vj
+            swath = [[vi[0], vi[1]]]
+            swath_cost = 0
+            dubins_path = dubins.shortest_path((vi[0], vi[1], math.radians((vi[2] + 2) * 45) % (2 * math.pi)),
+                                               (vj[0], vj[1], math.radians((vj[2] + 2) * 45) % (2 * math.pi)),
+                                               turning_radius)
+            configurations, _ = dubins_path.sample_many(0.2)
+            for config in configurations:
+                x_cell = int(round(config[0]))
+                y_cell = int(round(config[1]))
+                theta = config[2]
+                if [x_cell, y_cell] not in swath:
+                    swath.append([x_cell, y_cell])
+                    swath_cost += cost_map[y_cell, x_cell]
+
+            adj_cost = swath_cost + dubins_path.path_length()
+            if smooth_cost[vi] + adj_cost < smooth_cost[vj]:
+                smooth_cost[vj] = smooth_cost[vi] + adj_cost
+                prev[vj] = vi
+        i += 1
+    smooth_path = list()
+    smooth_path.append(goal)
+    node = goal
+    while node != start:
+        node = prev[node]
+        smooth_path.append(node)
+    print("length", len(smooth_path), sep=" ")
+    print(smooth_path)
+    #print(smooth_cost[goal])
+    return smooth_path
+
+
+def a_star(start, goal, turning_radius, n, cost_map, card_edge_set, ord_edge_set, cardinal_swath, ordinal_swath, list_of_obstacles, M):
     # theta is measured ccw from y axis
+    generation = 0
     openSet = [start]
     closedSet = []
-    openSet.append(start)
     cameFrom = dict()
     cameFrom[start] = None
     cameFrom_by_edge = dict()
@@ -180,14 +223,15 @@ def a_star(start, goal, turning_radius, n, cost_map, card_edge_set, ord_edge_set
     f_score_open_sorted = CustomPriorityQueue()
     f_score_open_sorted.put((start, f_score[start]))
     # will keep track of cost between adjacent nodes
-    counter = 0
+
     while np.shape(openSet)[0] != 0:
         # node[0] = x position
         # node[1] = y position
         # node[2] = theta (heading)
         # node = openSet.pop()
         node = f_score_open_sorted.get()[0]
-        print("Counter: ", counter, sep=" ")
+        node = node
+        print("Generation: ", generation, sep=" ")
         print("node", node, sep=" ")
 
         if node == goal:
@@ -203,46 +247,7 @@ def a_star(start, goal, turning_radius, n, cost_map, card_edge_set, ord_edge_set
             print(len(path))
             path.reverse()  # path: start -> goal
 
-            print("Attempt Smoothing")
-            prev = dict()
-            smooth_cost = dict()
-            for vi in path:
-                smooth_cost[vi] = float('inf')
-                prev[vi] = None
-            smooth_cost[path[0]] = 0
-            i = 0
-            for vi in path:
-                for vj in path[i + 1:]:
-                    # determine cost between node vi and vj
-                    swath = [[vi[0], vi[1]]]
-                    swath_cost = 0
-                    dubins_path = dubins.shortest_path((vi[0], vi[1], math.radians((vi[2] + 2) * 45) % (2 * math.pi)),
-                                                       (vj[0], vj[1], math.radians((vj[2] + 2) * 45) % (2 * math.pi)),
-                                                       turning_radius)
-                    configurations, _ = dubins_path.sample_many(0.2)
-                    for config in configurations:
-                        x_cell = int(round(config[0]))
-                        y_cell = int(round(config[1]))
-                        theta = config[2]
-                        if [x_cell, y_cell] not in swath:
-                            swath.append([x_cell, y_cell])
-                            swath_cost += cost_map[y_cell, x_cell]
-
-                    adj_cost = swath_cost + dubins_path.path_length()
-                    if smooth_cost[vi] + adj_cost < smooth_cost[vj]:
-                        smooth_cost[vj] = smooth_cost[vi] + adj_cost
-                        prev[vj] = vi
-                i += 1
-
-            smooth_path = list()
-            smooth_path.append(goal)
-            node = goal
-            while node != start:
-                node = prev[node]
-                smooth_path.append(node)
-            print("length", len(smooth_path), sep=" ")
-            print(smooth_path)
-            print(smooth_cost[goal])
+            smooth_path = path_smoothing(path, cost_map, turning_radius, start, goal)
 
             return (True, f_score[goal], smooth_path, closedSet)
 
@@ -299,7 +304,7 @@ def a_star(start, goal, turning_radius, n, cost_map, card_edge_set, ord_edge_set
                                                                                         turning_radius))
                     f_score[open_set_neighbour] = g_score[open_set_neighbour] + heuristic(open_set_neighbour, goal,
                                                                                           turning_radius)
-        counter = counter + 1
+        generation = generation + 1
     return (False, 'Fail', 'Fail')
 
 
