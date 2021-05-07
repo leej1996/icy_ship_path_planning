@@ -10,7 +10,6 @@ from queue import PriorityQueue
 import copy
 import dubins
 import time
-from scipy import spatial
 
 
 class CustomPriorityQueue(PriorityQueue):
@@ -150,14 +149,30 @@ def Concat(x, y):
     given two points x,y in the lattice, find the concatenation x + y
     """
 
-    p1 = [x[0], x[1], x[2] * math.pi / 4]
-    p2 = [y[0], y[1], y[2] * math.pi / 4]
+    #p1 = [x[0], x[1], x[2] * math.pi / 4]
+    rot = x[2] * math.pi / 4
+    #print("original rot", x[2])
+    p1 = [x[0], x[1]]
+    p2_theta = y[2] * math.pi / 4
+    p2 = [y[0], y[1]]
 
-    R = np.asarray([[math.cos(p1[2] + math.pi / 2), -math.sin(p1[2] + math.pi / 2), 0],
-                    [math.sin(p1[2] + math.pi / 2), math.cos(p1[2] + math.pi / 2), 0], [0, 0, 1]])
+    if x[2] % 2 == 0:
+        #cardinal
+        heading = p2_theta + rot
+    else:
+        #ordinal
+        rot = rot - math.pi/4
+        heading = p2_theta + rot
+
+    #R = np.asarray([[math.cos(rot + math.pi / 2), -math.sin(rot + math.pi / 2), 0],
+    #                [math.sin(rot + math.pi / 2), math.cos(rot + math.pi / 2), 0], [0, 0, 1]])
+    R = np.array([[math.cos(rot + math.pi/2), -math.sin(rot + math.pi/2)],
+                  [math.sin(rot + math.pi/2), math.cos(rot + math.pi/2)]])
     multiplication = np.matmul(R, np.transpose(np.asarray(p2)))
+    #print("rot", rot/(math.pi/4))
+    #print(multiplication)
     result = np.asarray(p1) + multiplication
-    heading = result[2]
+
     while heading >= 2 * math.pi:
         heading = heading - 2 * math.pi
     heading = heading / (math.pi / 4)
@@ -317,14 +332,19 @@ def a_star_euclid(start, goal, n, b, cost_map):
     return (False, 'Fail',)
 
 
-def path_smoothing(path, cost_map, turning_radius, start, goal):
+def path_smoothing(path, path_length, cost_map, turning_radius, start, goal, n):
     print("Attempt Smoothing")
     prev = dict()
     smooth_cost = dict()
+    #total_length = np.sum(path_length)
+    #probabilities = np.asarray(path_length)/total_length
     for vi in path:
         smooth_cost[vi] = float('inf')
         prev[vi] = None
     smooth_cost[path[0]] = 0
+    #print(probabilities)
+    #segments = np.sort(np.random.choice(np.arange(len(path)), len(path), p=probabilities))
+    #print(segments)
     i = 0
     for vi in path:
         for vj in path[i + 1:]:
@@ -362,8 +382,8 @@ def path_smoothing(path, cost_map, turning_radius, start, goal):
 
 def a_star(start, goal, turning_radius, n, m, cost_map, card_edge_set, ord_edge_set, cardinal_swath, ordinal_swath, list_of_obstacles, g):
     # theta is measured ccw from y axis
-    a = 0.2
-    b = 0.8
+    a = 0.3
+    b = 0.7
     generation = 0
     #openSet = [(start,generation)]
     openSet = dict()
@@ -376,9 +396,12 @@ def a_star(start, goal, turning_radius, n, m, cost_map, card_edge_set, ord_edge_
     # cost from start
     g_score = dict()
     g_score[start] = 0
-    # heuristic (estimation of cost to goal)
+    # f score (g score + heuristic) (estimation of cost to goal)
     f_score = dict()
     f_score[start] = heuristic(start, goal, turning_radius, n, b, cost_map)
+    # path length between nodes
+    path_length = dict()
+    path_length[start] = 0
     # priority queue of all visited node f scores
     f_score_open_sorted = dict()
     f_score_open_sorted[generation] = CustomPriorityQueue()
@@ -410,7 +433,8 @@ def a_star(start, goal, turning_radius, n, m, cost_map, card_edge_set, ord_edge_
         #t1 = time.clock() - t0
         #print("TEMP empty time", t1)
         #print("Generation: ", generation, sep=" ")
-        #print("node:", node, sep=" ")
+        #print("NODE:", node, sep=" ")
+        #print("NODE generation", node_gen)
         #print("temp length:", temp.qsize(), sep=" ")
 
         if generation % g == 0 and generation != 0:
@@ -424,19 +448,26 @@ def a_star(start, goal, turning_radius, n, m, cost_map, card_edge_set, ord_edge_
         if node == goal:
             #print("Found path")
             path = list()
+            new_path_length = list()
             cameFrom[goal] = cameFrom[node]
             path.append(goal)
+            new_path_length.append(path_length[goal])
             while node != start:
                 pred = cameFrom[node]
                 node = pred
                 path.append(node)
+                new_path_length.append(path_length[node])
 
-            print(len(path))
             #smooth_path = path
+            #total_length = np.sum(new_path_length)
+            #probabilities = np.asarray(new_path_length)/total_length
+
             #'''
             path.reverse()  # path: start -> goal
+            new_path_length.reverse()
 
-            smooth_path = path_smoothing(path, cost_map, turning_radius, start, goal)
+            smooth_path = path_smoothing(path, new_path_length, cost_map, turning_radius, start, goal, len(path))
+
             #'''
             return (True, f_score[goal], smooth_path, closedSet)
 
@@ -445,17 +476,15 @@ def a_star(start, goal, turning_radius, n, m, cost_map, card_edge_set, ord_edge_
         closedSet.append((node, node_gen))
 
         if (node[2] * 45) % 90 == 0:
-            #print("cardinal")
             edge_set = card_edge_set
             swath_set = cardinal_swath
         else:
-            #print("ordinal")
             edge_set = ord_edge_set
             swath_set = ordinal_swath
 
         for e in edge_set:
-            neighbour = Concat(node, e)
             #print("edge:", e, sep=" ")
+            neighbour = Concat(node, e)
             #print("neighbour:",neighbour, sep=" ")
 
             if not neighbour:
@@ -474,7 +503,7 @@ def a_star(start, goal, turning_radius, n, m, cost_map, card_edge_set, ord_edge_
                     #t2 = time.clock() - t0
                     #print("get_swath time", t2)
                     #t7 = time.clock()
-                    #swath = swath.astype(bool)
+                    swath = swath.astype(bool)
                     #t8 = time.clock() - t7
                     #print("bool conversion time", t8)
                     #t3 = time.clock()
@@ -493,7 +522,8 @@ def a_star(start, goal, turning_radius, n, m, cost_map, card_edge_set, ord_edge_
                     swath_cost = 0
 
                 #t0 = time.clock()
-                cost = swath_cost + dubins_shortest_path(node,neighbour,turning_radius)
+                temp_path_length = dubins_shortest_path(node, neighbour, turning_radius)
+                cost = swath_cost + temp_path_length
                 #t1 = time.clock() - t0
                 #print("cost time", t1)
                 # cost[(node, neighbour)] = np.sum(mask) + heuristic(node, neighbour, turning_radius)
@@ -522,6 +552,7 @@ def a_star(start, goal, turning_radius, n, m, cost_map, card_edge_set, ord_edge_
                     openSet[neighbour] = generation
                     cameFrom[neighbour] = node
                     cameFrom_by_edge[neighbour] = e
+                    path_length[neighbour] = temp_path_length
                     g_score[neighbour] = temp_g_score
                     f_score[neighbour] = a * g_score[neighbour] + b * heuristic_value
                     f_score_open_sorted[generation].put((neighbour, f_score[neighbour]))
@@ -534,10 +565,11 @@ def a_star(start, goal, turning_radius, n, m, cost_map, card_edge_set, ord_edge_
                     #print(open_set_gen)
                     cameFrom[open_set_neighbour] = node
                     cameFrom_by_edge[open_set_neighbour] = e
+                    path_length[open_set_neighbour] = temp_path_length
                     g_score[open_set_neighbour] = temp_g_score
                     f_score_open_sorted[open_set_gen]._update((open_set_neighbour, f_score[open_set_neighbour]),
                                                                a * g_score[open_set_neighbour] + b * open_set_neighbour_heuristic_value)
-                    f_score_open_sorted_nogen._update(((open_set_neighbour, open_set_gen), f_score[neighbour]),
+                    f_score_open_sorted_nogen._update(((open_set_neighbour, open_set_gen), f_score[open_set_neighbour]),
                                                         a * g_score[open_set_neighbour] + b * open_set_neighbour_heuristic_value)
                     if generation - open_set_gen < generation % g:
                         #print("hello")
@@ -584,11 +616,10 @@ def main():
     n = 71
     b = 35
     r = 7  # radius of circular turns
-    d = 1  # how far robot goes in straight line
     theta = 0  # Possible values: 0 - 7, each number should be multiplied by 45 degrees (measured CCW from up)
     turning_radius = 0.999
-    scale = 1
-    m = 3
+    scale = 2
+    m = 7
     start_pos = (15, 15, theta)
     # start_pos = (65,0,0)
     # goal_pos = (60, 65, 0)
@@ -598,7 +629,7 @@ def main():
     #plt.imshow(cost_map)
     #plt.show()
     # list_of_obstacles = np.array([[12, 12, 10], [25, 25, 8], [38, 36, 4], [25, 55, 15]])
-    # list_of_obstacles = np.array([[35,35,15]])
+    # list_of_obstacles = np.array([[35,15,10]])
     # list_of_obstacles = np.array([[5,5,5], [20,30,5], [50,40,5], [10,60,5], [40,10,5], [30,30,5],[30,50,5]])
     #list_of_obstacles = np.array([[30, 5, 5], [30, 16, 5], [30, 27, 5], [30, 38, 5], [30, 49, 5], [30, 60, 5]])
     list_of_obstacles = np.array([[30, 5, 5], [30, 16, 5], [30, 27, 4], [40,10,5], [50, 6, 5], [50, 20, 5]])
@@ -607,8 +638,7 @@ def main():
         cost_map = cm.create_circle(row, cost_map, scale)
 
     # y is pointing up, x is pointing to the right
-    # edge_set_cardinal = [(0, 1, 0), (-1, 2, 45), (-2, 2, 90), (1, 2, 315), (2, 2, 270)]
-    # edge_set_ordinal = [(-1, 1, 0), (-2, 1, 45), (-3, 0, 90), (-1, 2, 315), (0, 3, 270)]
+    # must rotate all swaths pi/4 CCW to be facing up
     edge_set_cardinal = [(1, 0, 0),
                          (2, 1, 0),
                          (2, -1, 0),
@@ -649,8 +679,6 @@ def main():
                         (5, 0, 7)]
 
     ordinal_swaths = generate_swath(edge_set_ordinal, turning_radius, 1)
-    # plt.imshow(ordinal_swaths[(3, 1, 1), 5])
-    # plt.show()
     cardinal_swaths = generate_swath(edge_set_cardinal, turning_radius, 0)
 
     t0 = time.clock()
