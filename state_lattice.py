@@ -10,6 +10,7 @@ from queue import PriorityQueue
 import copy
 import dubins
 import time
+import random
 
 
 class CustomPriorityQueue(PriorityQueue):
@@ -25,6 +26,45 @@ class CustomPriorityQueue(PriorityQueue):
     def _update(self, item, update_value):
         self.queue.remove(((item[1]), (item[0], item[1])))
         self._put((item[0], update_value))
+
+
+def generate_obstacles(start, goal, n, m, num_obs, min_r, max_r):
+    obstacles = list()
+    #for obs in range(num_obs):
+    protection = 0
+    x = random.randint(max_r, m - max_r)
+    y = random.randint(start[1] + 5 + max_r, goal[1] - 5 - max_r)
+    r = random.randint(min_r, max_r)
+    obstacles.append([y, x, r])
+    while len(obstacles) < num_obs - 1:
+    #for i in range(num_obs - 1):
+        near_obs = False
+        x = random.randint(max_r, m - max_r - 1)
+        y = random.randint(start[1] + 5 + max_r, goal[1] - 5 - max_r)
+        r = random.randint(min_r, max_r)
+        print(x,y)
+        # check if obstacles overlap
+        for obs in obstacles:
+            #((x1 - x2) ** 2 + (y1 - y2) ** 2) ** 0.5
+            print("print",obs[1], obs[0])
+            distance = ((x - obs[1]) ** 2 + (y - obs[0]) ** 2) ** 0.5
+            print(distance)
+            if ((x - obs[1]) ** 2 + (y - obs[0]) ** 2) ** 0.5 < 2 * max_r:
+                print('near obstacle')
+                near_obs = True
+                continue
+        if not near_obs:
+            obstacles.append([y, x, r])
+
+        protection += 1
+
+        if protection > 300:
+            break
+
+
+    print(obstacles)
+    return obstacles
+
 
 '''
 def get_cost(start, edge, turning_radius, list_of_obstacles):
@@ -247,12 +287,18 @@ def dubins_shortest_path(p_initial, p_final, turning_radius):
 def near_obstacle(node, list_of_obstacles):
     for obs in list_of_obstacles:
         # check if ship is within radius + 5 squares of the center of obstacle, then do swath
-        # also check if ship is past all obstacles (under assumption that goal is always positive y direction from start)
-        #print("distance", dist(node, (obs[1],obs[0])),sep=" " )
-        #print(obs[2] + 5)
-        if dist(node, (obs[1],obs[0])) < obs[2] + 5 and node[1] <= obs[0] + obs[2]:
+        if dist(node, (obs[1],obs[0])) < obs[2] + 5 and not past_obstacle(node, obs):
             return True
     return False
+
+
+def past_obstacle(node, obs):
+    # also check if ship is past all obstacles (under assumption that goal is always positive y direction from start)
+    # obs y coord + radius
+    if node[1] > obs[0] + obs[2]:
+        return True
+    else:
+        return False
 
 '''
 def recursion(n,m,cost_map, start_pos, goal_pos):
@@ -332,19 +378,76 @@ def a_star_euclid(start, goal, n, b, cost_map):
     return (False, 'Fail',)
 
 
-def path_smoothing(path, path_length, cost_map, turning_radius, start, goal, n):
+def path_smoothing(path, path_length, cost_map, turning_radius, start, goal, nodes, n, m):
     print("Attempt Smoothing")
+    #'''
+    
+    total_length = np.sum(path_length)
+    probabilities = np.asarray(path_length)/total_length
+    print(len(path))
+    #fig, ax = plt.subplots()
+    #ax2 = plt.axes(xlim=(0, b), ylim=(0, n))
+    #ax.set_aspect("equal")
+    x = list()
+    y = list()
+
+    for vi in path:
+        x.append(vi[0])
+        y.append(vi[1])
+
+    #print(probabilities)
+    segments = np.sort(np.random.choice(np.arange(len(path)), nodes, p=probabilities))
+    #print(segments)
+
+    added_x = list()
+    added_y = list()
+    counter = 0
+    offset = 0
+    while counter < len(segments):
+        #print("counter", counter)
+        node_id = segments[counter]
+        #print("node_id", node_id)
+        num_values = np.shape(segments[segments == node_id])[0]
+        node = path[node_id + offset]
+        prev_node = path[node_id + offset - 1]
+        #print(prev_node)
+        #print(node)
+
+        prim = dubins.shortest_path((prev_node[0], prev_node[1], math.radians((prev_node[2] + 2) * 45)),
+                                    (node[0], node[1], math.radians((node[2] + 2) * 45)), turning_radius)
+        configurations, _ = prim.sample_many(0.1)
+        #seperator = len(configurations)/(num_values + 1)
+        #print(np.linspace(0, len(configurations), num=num_values + 2, endpoint = False))
+        values = [configurations[int(i)] for i in np.linspace(0, len(configurations), num=num_values + 2, endpoint=False)]
+        values.pop(0)
+        values.pop()
+
+        inc = 1
+        for v in values:
+            heading = v[2] - math.pi/2
+            added_x.append(v[0])
+            added_y.append(v[1])
+            if heading < 0:
+                heading = heading + 2 * math.pi
+
+            path.insert(node_id - 1 + inc + counter, (v[0],v[1],heading/(math.pi/4)))
+            inc += 1
+        counter = counter + num_values
+        offset = offset + inc - 1
+
+    #print(path)
+
+    #plt.plot(x,y, 'bo')
+    #plt.plot(added_x,added_y,'go')
+    #'''
+
     prev = dict()
     smooth_cost = dict()
-    #total_length = np.sum(path_length)
-    #probabilities = np.asarray(path_length)/total_length
     for vi in path:
-        smooth_cost[vi] = float('inf')
+        smooth_cost[vi] = math.inf
         prev[vi] = None
     smooth_cost[path[0]] = 0
-    #print(probabilities)
-    #segments = np.sort(np.random.choice(np.arange(len(path)), len(path), p=probabilities))
-    #print(segments)
+
     i = 0
     for vi in path:
         for vj in path[i + 1:]:
@@ -354,15 +457,18 @@ def path_smoothing(path, path_length, cost_map, turning_radius, start, goal, n):
             dubins_path = dubins.shortest_path((vi[0], vi[1], math.radians((vi[2] + 2) * 45) % (2 * math.pi)),
                                                (vj[0], vj[1], math.radians((vj[2] + 2) * 45) % (2 * math.pi)),
                                                turning_radius)
-            configurations, _ = dubins_path.sample_many(0.5)
+            configurations, _ = dubins_path.sample_many(0.9)
+            #print(len(configurations))
+            #t0 = time.clock()
             for config in configurations:
                 x_cell = int(round(config[0]))
                 y_cell = int(round(config[1]))
-                theta = config[2]
-                if [x_cell, y_cell] not in swath:
-                    swath.append([x_cell, y_cell])
-                    swath_cost += cost_map[y_cell, x_cell]
-
+                if 0 <= x_cell < m and 0 <= y_cell < n:
+                    if [x_cell, y_cell] not in swath:
+                        swath.append([x_cell, y_cell])
+                        swath_cost += cost_map[y_cell, x_cell]
+            #t1 = time.clock() - t0
+            #print("check swath", t1)
             adj_cost = swath_cost + dubins_path.path_length()
             if smooth_cost[vi] + adj_cost < smooth_cost[vj]:
                 smooth_cost[vj] = smooth_cost[vi] + adj_cost
@@ -375,15 +481,16 @@ def path_smoothing(path, path_length, cost_map, turning_radius, start, goal, n):
     while node != start:
         node = prev[node]
         smooth_path.append(node)
-    print("length", len(smooth_path), sep=" ")
-    print(smooth_path)
-    return smooth_path
+    #print("length", len(smooth_path), sep=" ")
+    #print(smooth_path)
+    return smooth_path, x, y, added_x, added_y
 
 
 def a_star(start, goal, turning_radius, n, m, cost_map, card_edge_set, ord_edge_set, cardinal_swath, ordinal_swath, list_of_obstacles, g):
     # theta is measured ccw from y axis
     a = 0.3
     b = 0.7
+    free_path_interval = 5
     generation = 0
     #openSet = [(start,generation)]
     openSet = dict()
@@ -445,6 +552,23 @@ def a_star(start, goal, turning_radius, n, m, cost_map, card_edge_set, ord_edge_
                 except temp.empty():
                     continue
 
+        #if generation > 33:
+            #print("start debug")
+        # If ship past all obstacles, calc path to goal
+        if generation % 5 == 0:
+            past_all_obs = True
+            for obs in list_of_obstacles:
+                if not past_obstacle(node, obs):
+                    past_all_obs = False
+                    break
+
+            if past_all_obs:
+                print("Found path to goal")
+                cameFrom[goal] = node
+                path_length[goal] = dubins_shortest_path(node, goal, turning_radius)
+                f_score[goal] = g_score[node] + path_length[goal]
+                node = goal
+
         if node == goal:
             #print("Found path")
             path = list()
@@ -465,13 +589,17 @@ def a_star(start, goal, turning_radius, n, m, cost_map, card_edge_set, ord_edge_
             #'''
             path.reverse()  # path: start -> goal
             new_path_length.reverse()
-
-            smooth_path = path_smoothing(path, new_path_length, cost_map, turning_radius, start, goal, len(path))
-
+            add_nodes = int(len(path)/3)
+            #add_nodes = 0
+            #print(add_nodes)
+            t0 = time.clock()
+            smooth_path, x1, y1, x2, y2 = path_smoothing(path, new_path_length, cost_map, turning_radius, start, goal, add_nodes, n, m)
+            t1 = time.clock() - t0
+            print("smooth time", t1)
             #'''
+            #return (True, f_score[goal], smooth_path, closedSet, x1, y1, x2, y2)
             return (True, f_score[goal], smooth_path, closedSet)
 
-        #openSet.remove((node, node_gen))
         openSet.pop(node)
         closedSet.append((node, node_gen))
 
@@ -612,34 +740,46 @@ class Ship:
 
 
 def main():
-
-    n = 71
-    b = 35
+    # resolution is 50 cm x 50 cm
+    # ice tank is 76 x 12 m
+    n = 152
+    b = 24
     r = 7  # radius of circular turns
     theta = 0  # Possible values: 0 - 7, each number should be multiplied by 45 degrees (measured CCW from up)
     turning_radius = 0.999
-    scale = 2
-    m = 7
+    scale = 3
+    m = 4
     start_pos = (15, 15, theta)
     # start_pos = (65,0,0)
     # goal_pos = (60, 65, 0)
-    goal_pos = (15, 60, 0)
+    goal_pos = (15, 120, 0)
     # goal_pos = (20,50,90)
     cost_map = np.zeros((n, b))
+    #val = b/2
+    #for i in range(int(b/2)):
+        #cost_map[:, i] = val
+        #cost_map[:, b-1-i] = val
+        #val -= 1
     #plt.imshow(cost_map)
     #plt.show()
     # list_of_obstacles = np.array([[12, 12, 10], [25, 25, 8], [38, 36, 4], [25, 55, 15]])
     # list_of_obstacles = np.array([[35,15,10]])
     # list_of_obstacles = np.array([[5,5,5], [20,30,5], [50,40,5], [10,60,5], [40,10,5], [30,30,5],[30,50,5]])
     #list_of_obstacles = np.array([[30, 5, 5], [30, 16, 5], [30, 27, 5], [30, 38, 5], [30, 49, 5], [30, 60, 5]])
-    list_of_obstacles = np.array([[30, 5, 5], [30, 16, 5], [30, 27, 4], [40,10,5], [50, 6, 5], [50, 20, 5]])
-    # list_of_obstacles = list()
+    #list_of_obstacles = np.array([[30, 5, 5], [28, 17, 5], [30, 28, 4], [40,10,5], [50, 6, 5], [50, 20, 5]])
+    #list_of_obstacles = np.array([[30, 5, 5], [28, 17, 5], [30, 28, 4], [40,10,5], [50, 6, 5], [50, 20, 5]])
+    #list_of_obstacles = list()
+    list_of_obstacles = generate_obstacles(start_pos, goal_pos, n, b, 12, 2, 5)
+    #list_of_obstacles = [[36, 15, 4], [106, 8, 4], [54, 10, 3], [69, 7, 3], [83, 15, 4]]
     for row in list_of_obstacles:
         cost_map = cm.create_circle(row, cost_map, scale)
 
+    #plt.imshow(cost_map, origin='lower')
+    #plt.show()
     # y is pointing up, x is pointing to the right
     # must rotate all swaths pi/4 CCW to be facing up
     edge_set_cardinal = [(1, 0, 0),
+    #                     (5, 0, 0),
                          (2, 1, 0),
                          (2, -1, 0),
                          (2, 1, 1),
@@ -659,6 +799,7 @@ def main():
                          (4, 5, 0),
                          (4, -5, 0)]
     edge_set_ordinal = [(0, 3, 2),
+    #                    (3, 3, 1),
                         (0, 4, 3),
                         (0, 5, 1),
                         (0, 5, 3),
@@ -682,6 +823,8 @@ def main():
     cardinal_swaths = generate_swath(edge_set_cardinal, turning_radius, 0)
 
     t0 = time.clock()
+    #worked, L, edge_path, nodes_visited, x1, y1, x2, y2 = a_star(start_pos, goal_pos, turning_radius, n, b, cost_map, edge_set_cardinal,
+    #                                             edge_set_ordinal, cardinal_swaths, ordinal_swaths, list_of_obstacles, m)
     worked, L, edge_path, nodes_visited = a_star(start_pos, goal_pos, turning_radius, n, b, cost_map, edge_set_cardinal,
                                                  edge_set_ordinal, cardinal_swaths, ordinal_swaths, list_of_obstacles, m)
     t1 = time.clock() - t0
@@ -689,6 +832,7 @@ def main():
     print("Hz", 1/t1)
 
     fig1, ax1 = plt.subplots(2, 1)
+    #fig1, ax1 = plt.subplots()
     '''
     start_pos = (math.floor(n / 2), 10)
     goal_pos = (35, 60)
@@ -709,6 +853,7 @@ def main():
     #'''
     if worked:
         ax1[0].imshow(cost_map, origin='lower')
+        #ax1.imshow(cost_map, origin='lower')
         xmax = 0
         ymax = 0
         PATH = [i for i in edge_path[::-1]]
@@ -732,6 +877,7 @@ def main():
                 if config[1] > ymax:
                     ymax = config[1]
             ax1[0].plot(x, y, 'g')
+            #ax1.plot(x, y, 'g')
             path = np.append(path, np.array([np.asarray(x).T, np.asarray(y).T]), axis=1)
 
         path = np.delete(path, 0, 1)
@@ -739,6 +885,9 @@ def main():
 
         for obs in list_of_obstacles:
             ax1[0].add_patch(patches.Circle((obs[1], obs[0]), obs[2], fill=False))
+            #ax1.add_patch(patches.Circle((obs[1], obs[0]), obs[2]+0.5, fill=False))
+        #ax1.plot(x1,y1, 'bx')
+        #ax1.plot(x2,y2,'gx')
     else:
         path = 0
 
