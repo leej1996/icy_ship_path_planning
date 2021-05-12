@@ -455,7 +455,7 @@ def a_star(start, goal, turning_radius, n, m, cost_map, card_edge_set, ord_edge_
 
             path.reverse()  # path: start -> goal
             new_path_length.reverse()
-            add_nodes = int(len(path)/2)
+            add_nodes = int(len(path)/3)
             t0 = time.clock()
             smooth_path, x1, y1, x2, y2 = path_smoothing(path, new_path_length, cost_map, turning_radius, start, goal, add_nodes, n, m)
             t1 = time.clock() - t0
@@ -564,8 +564,9 @@ def main():
     goal_pos = (6, 65, 0)
     cost_map = np.zeros((n, m))
 
-    #list_of_obstacles = generate_obstacles(start_pos, goal_pos, n, b, 10, 2, 3)
-    list_of_obstacles = [[51, 12, 3], [44, 12, 3], [27, 16, 3], [57, 16, 2], [42, 5, 3], [31, 9, 3], [18, 3, 2], [24, 9, 2], [55, 6, 2]]
+    list_of_obstacles = generate_obstacles(start_pos, goal_pos, n, m, 12, 2, 4)
+    # [[36, 8, 4], [47, 7, 2], [51, 15, 2], [54, 7, 4], [22, 14, 3], [28, 14, 2], [28, 7, 4], [55, 15, 2], [48, 11, 2], [44, 14, 3], [32, 13, 2]]
+    #list_of_obstacles = [[51, 12, 3], [44, 12, 3], [27, 16, 3], [57, 16, 2], [42, 5, 3], [31, 9, 3], [18, 3, 2], [24, 9, 2], [55, 6, 2]]
     for row in list_of_obstacles:
         cost_map = cm.create_circle(row, cost_map, scale)
     print(list_of_obstacles)
