@@ -30,27 +30,19 @@ class CustomPriorityQueue(PriorityQueue):
 
 def generate_obstacles(start, goal, n, m, num_obs, min_r, max_r):
     obstacles = list()
-    #for obs in range(num_obs):
     protection = 0
-    x = random.randint(max_r, m - max_r)
+    x = random.randint(max_r, m - max_r - 1)
     y = random.randint(start[1] + 5 + max_r, goal[1] - 5 - max_r)
     r = random.randint(min_r, max_r)
     obstacles.append([y, x, r])
     while len(obstacles) < num_obs - 1:
-    #for i in range(num_obs - 1):
         near_obs = False
         x = random.randint(max_r, m - max_r - 1)
         y = random.randint(start[1] + 5 + max_r, goal[1] - 5 - max_r)
         r = random.randint(min_r, max_r)
-        print(x,y)
         # check if obstacles overlap
         for obs in obstacles:
-            #((x1 - x2) ** 2 + (y1 - y2) ** 2) ** 0.5
-            print("print",obs[1], obs[0])
-            distance = ((x - obs[1]) ** 2 + (y - obs[0]) ** 2) ** 0.5
-            print(distance)
-            if ((x - obs[1]) ** 2 + (y - obs[0]) ** 2) ** 0.5 < 2 * max_r:
-                print('near obstacle')
+            if ((x - obs[1]) ** 2 + (y - obs[0]) ** 2) ** 0.5 < obs[2] + r:
                 near_obs = True
                 continue
         if not near_obs:
@@ -61,49 +53,9 @@ def generate_obstacles(start, goal, n, m, num_obs, min_r, max_r):
         if protection > 300:
             break
 
-
-    print(obstacles)
     return obstacles
 
 
-'''
-def get_cost(start, edge, turning_radius, list_of_obstacles):
-    R = np.asarray([[math.cos(math.pi / 2), -math.sin(math.pi / 2), 0], [math.sin(math.pi / 2), math.cos(math.pi / 2), 0],
-                    [0, 0, 1]])
-    rot_e = R @ np.asarray(edge).T + np.array([start[0], start[1], 0])
-    dubins_path = dubins.shortest_path((start[0], start[1], math.radians((start[2] + 2) * 45)),
-                                        (rot_e[0], rot_e[1], math.radians((rot_e[2] + 2) * 45) % (2 * math.pi)),
-                                        turning_radius)
-    configurations, _ = dubins_path.sample_many(0.1)
-    check = True
-    min_dist = 0
-    for obs in list_of_obstacles:
-        # check if ship is within radius + 5 squares of the center of obstacle, then do swath
-        #determine distance from edge of obstacle
-        temp = dist(configurations[0], (obs[1],obs[0])) - obs[2]
-        min_dist = min(temp, min_dist)
-
-    if min_dist < 1:
-        check = True
-    else:
-        check = False
-
-    for config in configurations:
-        # (y,x)
-        if check:
-            
-        else:
-            if min_dist > 0:
-                min_dist = min_dist - 0.1
-                continue
-            else:
-                check = True
-        x_cell = int(round(config[0]))
-        y_cell = int(round(config[1]))
-        if [x_cell, y_cell] not in swath:
-            swath.append([x_cell, y_cell])
-
-'''
 def generate_swath(edge_set, turning_radius, heading):
     '''
     Will have key of (edge, start heading)
@@ -113,9 +65,6 @@ def generate_swath(edge_set, turning_radius, heading):
         [[math.cos(math.pi / 2), -math.sin(math.pi / 2), 0], [math.sin(math.pi / 2), math.cos(math.pi / 2), 0],
          [0, 0, 1]])
     start_pos = (5, 5, heading)
-    # fig = plt.figure()
-    # ax = plt.axes(xlim=(0, 10), ylim=(0, 10))
-    # ax.set_aspect("equal")
     for e in edge_set:
         array = np.zeros((11, 11), dtype=bool)
         swath = [[start_pos[0], start_pos[1]]]
@@ -136,7 +85,6 @@ def generate_swath(edge_set, turning_radius, heading):
 
         for pair in swath:
             array[pair[1], pair[0]] = True
-        # ax.plot(x,y)
         swath_set[e, 0 + heading] = array
         swath_set[e, 2 + heading] = np.flip(array.T, 1)  # Rotate 90 degrees CCW
         swath_set[e, 4 + heading] = np.flip(np.flip(array, 1), 0)  # Rotate 180 degrees CCW
@@ -146,11 +94,8 @@ def generate_swath(edge_set, turning_radius, heading):
 
 
 def get_swath(e, n, b, start_pos, swath_set):
-    #print("start", start_pos, sep=" ")
-    #print("edge", e, sep=" ")
     swath = np.zeros((n, b), dtype=bool)
     heading = int(start_pos[2])
-    #print("heading", heading, sep=" ")
     swath1 = swath_set[e, heading]
 
     swath_size = swath1.shape[0]
@@ -158,7 +103,6 @@ def get_swath(e, n, b, start_pos, swath_set):
     max_y = start_pos[1] + 6
     min_x = start_pos[0] - 5
     max_x = start_pos[0] + 6
-    # print(min_y, max_y, min_x, max_x, "overhangs", sep=" ")
     # Too far to the right
     if max_x >= b:
         overhang = max_x - (b - 1)
@@ -188,10 +132,7 @@ def Concat(x, y):
     """
     given two points x,y in the lattice, find the concatenation x + y
     """
-
-    #p1 = [x[0], x[1], x[2] * math.pi / 4]
     rot = x[2] * math.pi / 4
-    #print("original rot", x[2])
     p1 = [x[0], x[1]]
     p2_theta = y[2] * math.pi / 4
     p2 = [y[0], y[1]]
@@ -204,13 +145,10 @@ def Concat(x, y):
         rot = rot - math.pi/4
         heading = p2_theta + rot
 
-    #R = np.asarray([[math.cos(rot + math.pi / 2), -math.sin(rot + math.pi / 2), 0],
-    #                [math.sin(rot + math.pi / 2), math.cos(rot + math.pi / 2), 0], [0, 0, 1]])
     R = np.array([[math.cos(rot + math.pi/2), -math.sin(rot + math.pi/2)],
                   [math.sin(rot + math.pi/2), math.cos(rot + math.pi/2)]])
     multiplication = np.matmul(R, np.transpose(np.asarray(p2)))
-    #print("rot", rot/(math.pi/4))
-    #print(multiplication)
+
     result = np.asarray(p1) + multiplication
 
     while heading >= 2 * math.pi:
@@ -227,7 +165,7 @@ def is_point_in_set(point, set):
     return False, False, False
 
 
-def is_point_in_set_euclid(point,set):
+def is_point_in_set_euclid(point, set):
     for point1 in set:
         if dist(point, point1) < 0.001:
             return True, point1
@@ -255,26 +193,7 @@ def dist(a, b):
     return ((x1 - x2) ** 2 + (y1 - y2) ** 2) ** 0.5
 
 
-def heuristic(p_initial, p_final, turning_radius, n, b, cost_map):
-    """
-    The Dubins' distance from initial to final points.
-    """
-    '''
-    start = (p_initial[0],p_initial[1])
-    goal = (p_final[0], p_final[1])
-    print("start", p_initial, sep=" ")
-    print("goal", p_final, sep=" ")
-    Worked, euclid_cost = a_star_euclid(start, goal, n, b, cost_map)
-    print("euclid:", euclid_cost, sep=" ")
-    '''
-
-    dubins_cost = dubins_shortest_path(p_initial,p_final,turning_radius)
-    #print("dubins:", dubins_cost, sep=" ")
-    #return max(dubins_cost, euclid_cost)
-    return dubins_cost
-
-
-def dubins_shortest_path(p_initial, p_final, turning_radius):
+def heuristic(p_initial, p_final, turning_radius):
     """
     The Dubins' distance from initial to final points.
     """
@@ -282,6 +201,13 @@ def dubins_shortest_path(p_initial, p_final, turning_radius):
     p2 = (p_final[0], p_final[1], math.radians((p_final[2] * 45 + 90) % 360))
     path = dubins.shortest_path(p1, p2, turning_radius)
     return path.path_length()
+
+
+def dubins_shortest_path(p_initial, p_final, turning_radius):
+    """
+    The Dubins' distance from initial to final points.
+    """
+
 
 
 def near_obstacle(node, list_of_obstacles):
@@ -300,12 +226,6 @@ def past_obstacle(node, obs):
     else:
         return False
 
-'''
-def recursion(n,m,cost_map, start_pos, goal_pos):
-    dp = np.zeros((n*m,n*m))
-    for x1 in range(n):
-        for y1 in range(m):
-'''
 
 def a_star_euclid(start, goal, n, b, cost_map):
     openSet = [start]
@@ -380,14 +300,8 @@ def a_star_euclid(start, goal, n, b, cost_map):
 
 def path_smoothing(path, path_length, cost_map, turning_radius, start, goal, nodes, n, m):
     print("Attempt Smoothing")
-    #'''
-    
     total_length = np.sum(path_length)
     probabilities = np.asarray(path_length)/total_length
-    print(len(path))
-    #fig, ax = plt.subplots()
-    #ax2 = plt.axes(xlim=(0, b), ylim=(0, n))
-    #ax.set_aspect("equal")
     x = list()
     y = list()
 
@@ -395,29 +309,20 @@ def path_smoothing(path, path_length, cost_map, turning_radius, start, goal, nod
         x.append(vi[0])
         y.append(vi[1])
 
-    #print(probabilities)
     segments = np.sort(np.random.choice(np.arange(len(path)), nodes, p=probabilities))
-    #print(segments)
 
     added_x = list()
     added_y = list()
     counter = 0
     offset = 0
     while counter < len(segments):
-        #print("counter", counter)
         node_id = segments[counter]
-        #print("node_id", node_id)
         num_values = np.shape(segments[segments == node_id])[0]
         node = path[node_id + offset]
         prev_node = path[node_id + offset - 1]
-        #print(prev_node)
-        #print(node)
-
         prim = dubins.shortest_path((prev_node[0], prev_node[1], math.radians((prev_node[2] + 2) * 45)),
                                     (node[0], node[1], math.radians((node[2] + 2) * 45)), turning_radius)
         configurations, _ = prim.sample_many(0.1)
-        #seperator = len(configurations)/(num_values + 1)
-        #print(np.linspace(0, len(configurations), num=num_values + 2, endpoint = False))
         values = [configurations[int(i)] for i in np.linspace(0, len(configurations), num=num_values + 2, endpoint=False)]
         values.pop(0)
         values.pop()
@@ -435,12 +340,6 @@ def path_smoothing(path, path_length, cost_map, turning_radius, start, goal, nod
         counter = counter + num_values
         offset = offset + inc - 1
 
-    #print(path)
-
-    #plt.plot(x,y, 'bo')
-    #plt.plot(added_x,added_y,'go')
-    #'''
-
     prev = dict()
     smooth_cost = dict()
     for vi in path:
@@ -452,37 +351,34 @@ def path_smoothing(path, path_length, cost_map, turning_radius, start, goal, nod
     for vi in path:
         for vj in path[i + 1:]:
             # determine cost between node vi and vj
-            swath = [[vi[0], vi[1]]]
+            swath = [[int(round(vi[0])), int(round(vi[1]))]]
             swath_cost = 0
             dubins_path = dubins.shortest_path((vi[0], vi[1], math.radians((vi[2] + 2) * 45) % (2 * math.pi)),
                                                (vj[0], vj[1], math.radians((vj[2] + 2) * 45) % (2 * math.pi)),
                                                turning_radius)
             configurations, _ = dubins_path.sample_many(0.9)
-            #print(len(configurations))
-            #t0 = time.clock()
             for config in configurations:
                 x_cell = int(round(config[0]))
                 y_cell = int(round(config[1]))
                 if 0 <= x_cell < m and 0 <= y_cell < n:
                     if [x_cell, y_cell] not in swath:
+                    #if x_cell not in swath1 and y_cell not in swath2:
                         swath.append([x_cell, y_cell])
                         swath_cost += cost_map[y_cell, x_cell]
-            #t1 = time.clock() - t0
-            #print("check swath", t1)
+
             adj_cost = swath_cost + dubins_path.path_length()
             if smooth_cost[vi] + adj_cost < smooth_cost[vj]:
                 smooth_cost[vj] = smooth_cost[vi] + adj_cost
                 prev[vj] = vi
 
         i += 1
+
     smooth_path = list()
     smooth_path.append(goal)
     node = goal
     while node != start:
         node = prev[node]
         smooth_path.append(node)
-    #print("length", len(smooth_path), sep=" ")
-    #print(smooth_path)
     return smooth_path, x, y, added_x, added_y
 
 
@@ -492,7 +388,6 @@ def a_star(start, goal, turning_radius, n, m, cost_map, card_edge_set, ord_edge_
     b = 0.7
     free_path_interval = 5
     generation = 0
-    #openSet = [(start,generation)]
     openSet = dict()
     openSet[start] = generation
     closedSet = []
@@ -505,10 +400,12 @@ def a_star(start, goal, turning_radius, n, m, cost_map, card_edge_set, ord_edge_
     g_score[start] = 0
     # f score (g score + heuristic) (estimation of cost to goal)
     f_score = dict()
-    f_score[start] = heuristic(start, goal, turning_radius, n, b, cost_map)
+    f_score[start] = heuristic(start, goal, turning_radius)
     # path length between nodes
     path_length = dict()
     path_length[start] = 0
+    heading_delta = dict()
+    heading_delta[start] = 0
     # priority queue of all visited node f scores
     f_score_open_sorted = dict()
     f_score_open_sorted[generation] = CustomPriorityQueue()
@@ -525,20 +422,14 @@ def a_star(start, goal, turning_radius, n, m, cost_map, card_edge_set, ord_edge_
         # node[1] = y position
         # node[2] = theta (heading)
 
-        #node = f_score_open_sorted[generation].get()[0]
-        #t0 = time.clock()
         if temp.empty():
             new_node = f_score_open_sorted_nogen.get()[0]
             print("empty temp",new_node, sep=" ")
             temp.put(new_node)
             node, node_gen = temp.get()
-            f_score_open_sorted[node_gen].get()
         else:
             node, node_gen = temp.get()[0]
-            f_score_open_sorted[node_gen].get()
             f_score_open_sorted_nogen.queue.remove(((f_score[node]), ((node, node_gen), f_score[node])))
-        #t1 = time.clock() - t0
-        #print("TEMP empty time", t1)
         #print("Generation: ", generation, sep=" ")
         #print("NODE:", node, sep=" ")
         #print("NODE generation", node_gen)
@@ -552,10 +443,9 @@ def a_star(start, goal, turning_radius, n, m, cost_map, card_edge_set, ord_edge_
                 except temp.empty():
                     continue
 
-        #if generation > 33:
-            #print("start debug")
-        # If ship past all obstacles, calc path to goal
-        if generation % 5 == 0:
+
+        # If ship past all obstacles, calc direct dubins path to goal
+        if generation % free_path_interval == 0 and node != goal:
             past_all_obs = True
             for obs in list_of_obstacles:
                 if not past_obstacle(node, obs):
@@ -565,40 +455,33 @@ def a_star(start, goal, turning_radius, n, m, cost_map, card_edge_set, ord_edge_
             if past_all_obs:
                 print("Found path to goal")
                 cameFrom[goal] = node
-                path_length[goal] = dubins_shortest_path(node, goal, turning_radius)
+                path_length[goal] = heuristic(node, goal, turning_radius)
                 f_score[goal] = g_score[node] + path_length[goal]
-                node = goal
+                pred = goal
+                node = pred
 
         if node == goal:
-            #print("Found path")
+            print("Found path")
             path = list()
             new_path_length = list()
             cameFrom[goal] = cameFrom[node]
             path.append(goal)
             new_path_length.append(path_length[goal])
+
             while node != start:
                 pred = cameFrom[node]
                 node = pred
                 path.append(node)
                 new_path_length.append(path_length[node])
 
-            #smooth_path = path
-            #total_length = np.sum(new_path_length)
-            #probabilities = np.asarray(new_path_length)/total_length
-
-            #'''
             path.reverse()  # path: start -> goal
             new_path_length.reverse()
-            add_nodes = int(len(path)/3)
-            #add_nodes = 0
-            #print(add_nodes)
+            add_nodes = int(len(path))
             t0 = time.clock()
             smooth_path, x1, y1, x2, y2 = path_smoothing(path, new_path_length, cost_map, turning_radius, start, goal, add_nodes, n, m)
             t1 = time.clock() - t0
             print("smooth time", t1)
-            #'''
-            #return (True, f_score[goal], smooth_path, closedSet, x1, y1, x2, y2)
-            return (True, f_score[goal], smooth_path, closedSet)
+            return (True, f_score[goal], smooth_path, closedSet, x1, y1, x2, y2)
 
         openSet.pop(node)
         closedSet.append((node, node_gen))
@@ -624,41 +507,17 @@ def a_star(start, goal, turning_radius, n, m, cost_map, card_edge_set, ord_edge_
                 if neighbour_in_closed_set:
                     continue
 
+                # If near obstacle, check cost map to find cost of swath
                 if near_obstacle(node, list_of_obstacles):
-                    #print("calculate_swath")
-                    #t0 = time.clock()
-                    swath = get_swath(e, n, m, np.array(node), swath_set)
-                    #t2 = time.clock() - t0
-                    #print("get_swath time", t2)
-                    #t7 = time.clock()
-                    swath = swath.astype(bool)
-                    #t8 = time.clock() - t7
-                    #print("bool conversion time", t8)
-                    #t3 = time.clock()
+                    swath = get_swath(e, n, m, node, swath_set)
                     mask = cost_map[swath]
-                    #t4 = time.clock() - t3
-                    #print("mask conversion time", t4)
-                    #print(mask)
-                    #t5 = time.clock()
                     swath_cost = np.sum(mask)
-                    #t6 = time.clock() - t5
-                    #print("sum time", t6)
-                    #t1 = time.clock() - t0
-                    #print("swath time", t1)
-                    #print("swath cost", swath_cost)
                 else:
                     swath_cost = 0
 
-                #t0 = time.clock()
-                temp_path_length = dubins_shortest_path(node, neighbour, turning_radius)
+                temp_path_length = heuristic(node, neighbour, turning_radius)
                 cost = swath_cost + temp_path_length
-                #t1 = time.clock() - t0
-                #print("cost time", t1)
-                # cost[(node, neighbour)] = np.sum(mask) + heuristic(node, neighbour, turning_radius)
-                #print("cost", cost)
-                #t0 = time.clock()
                 temp_g_score = g_score[node] + cost
-                #neighbour_in_open_set, open_set_neighbour, open_set_gen = is_point_in_set(neighbour, openSet)
 
                 if neighbour in openSet:
                     neighbour_in_open_set = True
@@ -668,26 +527,21 @@ def a_star(start, goal, turning_radius, n, m, cost_map, card_edge_set, ord_edge_
                     neighbour_in_open_set = False
                     open_set_neighbour = False
                     open_set_gen = False
-                #t1 = time.clock() - t0
-                #print("OPEN SET time", t1)
-                #print(len(openSet))
 
-                #t0 = time.clock()
                 if not neighbour_in_open_set:
                     #print("new node")
-                    heuristic_value = heuristic(neighbour, goal, turning_radius, n, m, cost_map)
-                    #openSet.append((neighbour, generation))
+                    heuristic_value = heuristic(neighbour, goal, turning_radius)
                     openSet[neighbour] = generation
                     cameFrom[neighbour] = node
                     cameFrom_by_edge[neighbour] = e
                     path_length[neighbour] = temp_path_length
+                    heading_delta[neighbour] = neighbour[2] - node[2]
                     g_score[neighbour] = temp_g_score
                     f_score[neighbour] = a * g_score[neighbour] + b * heuristic_value
-                    f_score_open_sorted[generation].put((neighbour, f_score[neighbour]))
                     temp.put(((neighbour, generation), f_score[neighbour]))
                     f_score_open_sorted_nogen.put(((neighbour, generation), f_score[neighbour]))
                 elif neighbour_in_open_set and temp_g_score < g_score[open_set_neighbour]:
-                    open_set_neighbour_heuristic_value = heuristic(open_set_neighbour, goal, turning_radius, n, m, cost_map)
+                    open_set_neighbour_heuristic_value = heuristic(open_set_neighbour, goal, turning_radius)
                     #print("found cheaper cost to node")
                     #print(open_set_neighbour)
                     #print(open_set_gen)
@@ -695,24 +549,17 @@ def a_star(start, goal, turning_radius, n, m, cost_map, card_edge_set, ord_edge_
                     cameFrom_by_edge[open_set_neighbour] = e
                     path_length[open_set_neighbour] = temp_path_length
                     g_score[open_set_neighbour] = temp_g_score
-                    f_score_open_sorted[open_set_gen]._update((open_set_neighbour, f_score[open_set_neighbour]),
-                                                               a * g_score[open_set_neighbour] + b * open_set_neighbour_heuristic_value)
                     f_score_open_sorted_nogen._update(((open_set_neighbour, open_set_gen), f_score[open_set_neighbour]),
                                                         a * g_score[open_set_neighbour] + b * open_set_neighbour_heuristic_value)
                     if generation - open_set_gen < generation % g:
-                        #print("hello")
                         temp._update(((open_set_neighbour,open_set_gen), f_score[open_set_neighbour]),
                                      a * g_score[open_set_neighbour] + b * open_set_neighbour_heuristic_value)
                     f_score[open_set_neighbour] = a * g_score[open_set_neighbour] + b * open_set_neighbour_heuristic_value
-                #t1 = time.clock() - t0
-                #print("set assignment", t1)
         generation = generation + 1
-        f_score_open_sorted[generation] = CustomPriorityQueue()
     return (False, 'Fail', 'Fail', 'Fail')
 
 
 def create_circle(space, x, y, r):
-    # body = pymunk.Body(1, 100, body_type=pymunk.Body.DYNAMIC)
     body = pymunk.Body()
     body.position = (x, y)
     shape = pymunk.Circle(body, r)
@@ -724,14 +571,11 @@ def create_circle(space, x, y, r):
 class Ship:
     def __init__(self, space, v, x, y, theta):
         self.vertices = [(0, 2), (0.5, 1), (0.5, -1), (-0.5, -1), (-0.5, 1)]
-        # [(0,3), (1,1), (1,-2), (-1,-2), (-1,1)]
         self.body = pymunk.Body(1, 100, body_type=pymunk.Body.KINEMATIC)
         self.body.position = (x, y)
         self.body.velocity = v
         self.body.angle = math.radians(theta)
         self.shape = pymunk.Poly(self.body, self.vertices)
-
-        # pymunk.Circle(self.body, r)
         space.add(self.body, self.shape)
         self.path_pos = 0
 
@@ -740,46 +584,25 @@ class Ship:
 
 
 def main():
-    # resolution is 50 cm x 50 cm
+    # resolution is 1 turning radius TBD
     # ice tank is 76 x 12 m
-    n = 152
-    b = 24
-    r = 7  # radius of circular turns
+    n = 76
+    b = 12
     theta = 0  # Possible values: 0 - 7, each number should be multiplied by 45 degrees (measured CCW from up)
     turning_radius = 0.999
     scale = 3
-    m = 4
-    start_pos = (15, 15, theta)
-    # start_pos = (65,0,0)
-    # goal_pos = (60, 65, 0)
-    goal_pos = (15, 120, 0)
-    # goal_pos = (20,50,90)
+    m = 5
+    start_pos = (5, 15, theta)
+    goal_pos = (6, 60, 0)
     cost_map = np.zeros((n, b))
-    #val = b/2
-    #for i in range(int(b/2)):
-        #cost_map[:, i] = val
-        #cost_map[:, b-1-i] = val
-        #val -= 1
-    #plt.imshow(cost_map)
-    #plt.show()
-    # list_of_obstacles = np.array([[12, 12, 10], [25, 25, 8], [38, 36, 4], [25, 55, 15]])
-    # list_of_obstacles = np.array([[35,15,10]])
-    # list_of_obstacles = np.array([[5,5,5], [20,30,5], [50,40,5], [10,60,5], [40,10,5], [30,30,5],[30,50,5]])
-    #list_of_obstacles = np.array([[30, 5, 5], [30, 16, 5], [30, 27, 5], [30, 38, 5], [30, 49, 5], [30, 60, 5]])
-    #list_of_obstacles = np.array([[30, 5, 5], [28, 17, 5], [30, 28, 4], [40,10,5], [50, 6, 5], [50, 20, 5]])
-    #list_of_obstacles = np.array([[30, 5, 5], [28, 17, 5], [30, 28, 4], [40,10,5], [50, 6, 5], [50, 20, 5]])
-    #list_of_obstacles = list()
-    list_of_obstacles = generate_obstacles(start_pos, goal_pos, n, b, 12, 2, 5)
-    #list_of_obstacles = [[36, 15, 4], [106, 8, 4], [54, 10, 3], [69, 7, 3], [83, 15, 4]]
+
+    list_of_obstacles = generate_obstacles(start_pos, goal_pos, n, b, 8, 2, 3)
     for row in list_of_obstacles:
         cost_map = cm.create_circle(row, cost_map, scale)
-
-    #plt.imshow(cost_map, origin='lower')
-    #plt.show()
+    print(list_of_obstacles)
     # y is pointing up, x is pointing to the right
     # must rotate all swaths pi/4 CCW to be facing up
     edge_set_cardinal = [(1, 0, 0),
-    #                     (5, 0, 0),
                          (2, 1, 0),
                          (2, -1, 0),
                          (2, 1, 1),
@@ -799,7 +622,6 @@ def main():
                          (4, 5, 0),
                          (4, -5, 0)]
     edge_set_ordinal = [(0, 3, 2),
-    #                    (3, 3, 1),
                         (0, 4, 3),
                         (0, 5, 1),
                         (0, 5, 3),
@@ -823,15 +645,13 @@ def main():
     cardinal_swaths = generate_swath(edge_set_cardinal, turning_radius, 0)
 
     t0 = time.clock()
-    #worked, L, edge_path, nodes_visited, x1, y1, x2, y2 = a_star(start_pos, goal_pos, turning_radius, n, b, cost_map, edge_set_cardinal,
-    #                                             edge_set_ordinal, cardinal_swaths, ordinal_swaths, list_of_obstacles, m)
-    worked, L, edge_path, nodes_visited = a_star(start_pos, goal_pos, turning_radius, n, b, cost_map, edge_set_cardinal,
-                                                 edge_set_ordinal, cardinal_swaths, ordinal_swaths, list_of_obstacles, m)
+    worked, L, edge_path, nodes_visited, x1, y1, x2, y2 = a_star(start_pos, goal_pos, turning_radius, n, b, cost_map, edge_set_cardinal,
+                                                          edge_set_ordinal, cardinal_swaths, ordinal_swaths, list_of_obstacles, m)
     t1 = time.clock() - t0
     print("Time elapsed: ", t1)
     print("Hz", 1/t1)
 
-    fig1, ax1 = plt.subplots(2, 1)
+    fig1, ax1 = plt.subplots(1, 2)
     #fig1, ax1 = plt.subplots()
     '''
     start_pos = (math.floor(n / 2), 10)
@@ -853,7 +673,6 @@ def main():
     #'''
     if worked:
         ax1[0].imshow(cost_map, origin='lower')
-        #ax1.imshow(cost_map, origin='lower')
         xmax = 0
         ymax = 0
         PATH = [i for i in edge_path[::-1]]
@@ -877,7 +696,6 @@ def main():
                 if config[1] > ymax:
                     ymax = config[1]
             ax1[0].plot(x, y, 'g')
-            #ax1.plot(x, y, 'g')
             path = np.append(path, np.array([np.asarray(x).T, np.asarray(y).T]), axis=1)
 
         path = np.delete(path, 0, 1)
@@ -885,16 +703,14 @@ def main():
 
         for obs in list_of_obstacles:
             ax1[0].add_patch(patches.Circle((obs[1], obs[0]), obs[2], fill=False))
-            #ax1.add_patch(patches.Circle((obs[1], obs[0]), obs[2]+0.5, fill=False))
-        #ax1.plot(x1,y1, 'bx')
-        #ax1.plot(x2,y2,'gx')
+        #ax1[0].plot(x1,y1, 'bx')
+        #ax1[0].plot(x2,y2,'gx')
     else:
         path = 0
 
     node_plot = np.zeros((n, b))
     
     for node in nodes_visited:
-        #print(node)
         node_plot[node[0][1], node[0][0]] = node_plot[node[0][1], node[0][0]] + 1
     
 
