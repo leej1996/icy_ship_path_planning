@@ -135,17 +135,17 @@ def Concat(x, y):
     """
     given two points x,y in the lattice, find the concatenation x + y
     """
-    rot = x[2] * math.pi / 4
+    rot = x[2] * math.pi / 4  # starting heading
     p1 = [x[0], x[1]]
-    p2_theta = y[2] * math.pi / 4
+    p2_theta = y[2] * math.pi / 4  # edge heading
     p2 = [y[0], y[1]]
 
     if x[2] % 2 == 0:
-        #cardinal
+        # cardinal
         heading = p2_theta + rot
     else:
-        #ordinal
-        rot = rot - math.pi/4
+        # ordinal
+        rot = rot - math.pi / 4
         heading = p2_theta + rot
 
     R = np.array([[math.cos(rot), -math.sin(rot)],
@@ -190,7 +190,7 @@ def heuristic(p_initial, p_final, turning_radius):
 def near_obstacle(node, list_of_obstacles):
     for obs in list_of_obstacles:
         # check if ship is within radius + 5 squares of the center of obstacle, then do swath
-        if dist(node, (obs[1],obs[0])) < obs[2] + 5 and not past_obstacle(node, obs):
+        if dist(node, (obs[1], obs[0])) < obs[2] + 5 and not past_obstacle(node, obs):
             return True
     return False
 
@@ -207,8 +207,8 @@ def past_obstacle(node, obs):
 def path_smoothing(path, path_length, cost_map, turning_radius, start, goal, nodes, n, m):
     print("Attempt Smoothing")
     total_length = np.sum(path_length)
-    probabilities = np.asarray(path_length)/total_length
-    #print(probabilities)
+    probabilities = np.asarray(path_length) / total_length
+    # print(probabilities)
     x = list()
     y = list()
 
@@ -230,19 +230,20 @@ def path_smoothing(path, path_length, cost_map, turning_radius, start, goal, nod
         prim = dubins.shortest_path((prev_node[0], prev_node[1], math.radians((prev_node[2] + 2) * 45)),
                                     (node[0], node[1], math.radians((node[2] + 2) * 45)), turning_radius)
         configurations, _ = prim.sample_many(0.1)
-        values = [configurations[int(i)] for i in np.linspace(0, len(configurations), num=num_values + 2, endpoint=False)]
+        values = [configurations[int(i)] for i in
+                  np.linspace(0, len(configurations), num=num_values + 2, endpoint=False)]
         values.pop(0)
         values.pop()
 
         inc = 1
         for v in values:
-            heading = v[2] - math.pi/2
+            heading = v[2] - math.pi / 2
             added_x.append(v[0])
             added_y.append(v[1])
             if heading < 0:
                 heading = heading + 2 * math.pi
 
-            path.insert(node_id - 1 + inc + counter, (v[0],v[1],heading/(math.pi/4)))
+            path.insert(node_id - 1 + inc + counter, (v[0], v[1], heading / (math.pi / 4)))
             inc += 1
         counter = counter + num_values
         offset = offset + inc - 1
@@ -270,7 +271,7 @@ def path_smoothing(path, path_length, cost_map, turning_radius, start, goal, nod
                 y_cell = int(round(config[1]))
                 if 0 <= x_cell < m and 0 <= y_cell < n:
                     if [x_cell, y_cell] not in swath:
-                    #if x_cell not in swath1 and y_cell not in swath2:
+                        # if x_cell not in swath1 and y_cell not in swath2:
                         swath.append([x_cell, y_cell])
                         swath_cost += cost_map[y_cell, x_cell]
 
@@ -290,7 +291,8 @@ def path_smoothing(path, path_length, cost_map, turning_radius, start, goal, nod
     return smooth_path, x, y, added_x, added_y
 
 
-def a_star(start, goal, turning_radius, n, m, cost_map, card_edge_set, ord_edge_set, cardinal_swath, ordinal_swath, list_of_obstacles):
+def a_star(start, goal, turning_radius, n, m, cost_map, card_edge_set, ord_edge_set, cardinal_swath, ordinal_swath,
+           list_of_obstacles):
     # theta is measured ccw from y axis
     a = 0.2
     b = 0.8
@@ -313,13 +315,13 @@ def a_star(start, goal, turning_radius, n, m, cost_map, card_edge_set, ord_edge_
     # path length between nodes
     path_length = dict()
     path_length[start] = 0
-    heading_delta = dict()
-    heading_delta[start] = 0
+    # heading_delta = dict()
+    # heading_delta[start] = 0
     # priority queue of all visited node f scores
     f_score_open_sorted = CustomPriorityQueue()
-    f_score_open_sorted.put((start,f_score[start]))  # put item in priority queue
+    f_score_open_sorted.put((start, f_score[start]))  # put item in priority queue
 
-    #while np.shape(openSet)[0] != 0:
+    # while np.shape(openSet)[0] != 0:
     while len(openSet) != 0:
         # node[0] = x position
         # node[1] = y position
@@ -327,8 +329,8 @@ def a_star(start, goal, turning_radius, n, m, cost_map, card_edge_set, ord_edge_
 
         node = f_score_open_sorted.get()[0]
 
-        #print("Generation: ", generation, sep=" ")
-        #print("NODE:", node, sep=" ")
+        # print("Generation: ", generation, sep=" ")
+        # print("NODE:", node, sep=" ")
 
         # If ship past all obstacles, calc direct dubins path to goal
         if generation % free_path_interval == 0 and node != goal:
@@ -351,6 +353,7 @@ def a_star(start, goal, turning_radius, n, m, cost_map, card_edge_set, ord_edge_
             path = list()
             new_path_length = list()
             print("goal", goal)
+            path_heading_delta = list()
             cameFrom[goal] = cameFrom[node]
             path.append(goal)
             new_path_length.append(path_length[goal])
@@ -360,13 +363,19 @@ def a_star(start, goal, turning_radius, n, m, cost_map, card_edge_set, ord_edge_
                 node = pred
                 path.append(node)
                 new_path_length.append(path_length[node])
+                # if heading_delta[node] > 2:
+                # heading_delta[node] = abs(heading_delta[node] - 8)
+                # path_heading_delta.append(heading_delta[node])
+
+            # print(path_heading_delta)
 
             path.reverse()  # path: start -> goal
             new_path_length.reverse()
             print("path", path)
-            add_nodes = int(len(path)/3)  # number of nodes to add in the path smoothing algorithm
+            add_nodes = int(len(path) / 3)  # number of nodes to add in the path smoothing algorithm
             t0 = time.clock()
-            smooth_path, x1, y1, x2, y2 = path_smoothing(path, new_path_length, cost_map, turning_radius, start, goal, add_nodes, n, m)
+            smooth_path, x1, y1, x2, y2 = path_smoothing(path, new_path_length, cost_map, turning_radius, start, goal,
+                                                         add_nodes, n, m)
             t1 = time.clock() - t0
             print("smooth time", t1)
             return (True, f_score[goal], smooth_path, closedSet, x1, y1, x2, y2)
@@ -382,9 +391,9 @@ def a_star(start, goal, turning_radius, n, m, cost_map, card_edge_set, ord_edge_
             swath_set = ordinal_swath
 
         for e in edge_set:
-            #print("edge:", e, sep=" ")
+            # print("edge:", e, sep=" ")
             neighbour = Concat(node, e)
-            #print("neighbour:",neighbour, sep=" ")
+            # print("neighbour:",neighbour, sep=" ")
 
             if 0 <= neighbour[0] < m and 0 <= neighbour[1] < n:
                 # check if point is in closed set
@@ -412,27 +421,29 @@ def a_star(start, goal, turning_radius, n, m, cost_map, card_edge_set, ord_edge_
                     open_set_neighbour = False
 
                 if not neighbour_in_open_set:
-                    #print("new node")
+                    # print("new node")
                     heuristic_value = heuristic(neighbour, goal, turning_radius)
                     openSet[neighbour] = generation
                     cameFrom[neighbour] = node
                     cameFrom_by_edge[neighbour] = e
                     path_length[neighbour] = temp_path_length
-                    heading_delta[neighbour] = neighbour[2] - node[2]
+                    # heading_delta[neighbour] = abs(neighbour[2] - node[2])
                     g_score[neighbour] = temp_g_score
                     f_score[neighbour] = a * g_score[neighbour] + b * heuristic_value
                     f_score_open_sorted.put((neighbour, f_score[neighbour]))
                 elif neighbour_in_open_set and temp_g_score < g_score[open_set_neighbour]:
                     open_set_neighbour_heuristic_value = heuristic(open_set_neighbour, goal, turning_radius)
-                    #print("found cheaper cost to node")
-                    #print(open_set_neighbour)
+                    # print("found cheaper cost to node")
+                    # print(open_set_neighbour)
                     cameFrom[open_set_neighbour] = node
                     cameFrom_by_edge[open_set_neighbour] = e
                     path_length[open_set_neighbour] = temp_path_length
                     g_score[open_set_neighbour] = temp_g_score
                     f_score_open_sorted._update((open_set_neighbour, f_score[open_set_neighbour]),
-                                                        a * g_score[open_set_neighbour] + b * open_set_neighbour_heuristic_value)
-                    f_score[open_set_neighbour] = a * g_score[open_set_neighbour] + b * open_set_neighbour_heuristic_value
+                                                a * g_score[
+                                                    open_set_neighbour] + b * open_set_neighbour_heuristic_value)
+                    f_score[open_set_neighbour] = a * g_score[
+                        open_set_neighbour] + b * open_set_neighbour_heuristic_value
         generation = generation + 1
     return (False, 'Fail', 'Fail', 'Fail')
 
@@ -446,6 +457,76 @@ def create_circle(space, x, y, r):
     return shape
 
 
+def generate_polygon(n, N, x_pos, y_pos):
+    # generate two lists of x and y of N random integers between 0 and n
+    x = [random.uniform(0, n) for _ in range(N)]
+    y = [random.uniform(0, n) for _ in range(N)]
+
+    # sort both lists
+    x.sort()
+    y.sort()
+
+    x_max = x[-1]
+    y_max = y[-1]
+    x_min = x[0]
+    y_min = y[0]
+
+    lastTop = x_min
+    lastBot = x_min
+    xVec = list()
+
+    for i in range(1, N - 1):
+        val = x[i]
+        if bool(random.getrandbits(1)):
+            xVec.append(val - lastTop)
+            lastTop = val
+        else:
+            xVec.append(lastBot - val)
+            lastBot = val
+
+    xVec.append(x_max - lastTop)
+    xVec.append(lastBot - x_max)
+
+    lastLeft = y_min
+    lastRight = y_min
+    yVec = list()
+
+    for i in range(1, N - 1):
+        val = y[i]
+        if bool(random.getrandbits(1)):
+            yVec.append(val - lastLeft)
+            lastLeft = val
+        else:
+            yVec.append(lastRight - val)
+            lastRight = val
+
+    yVec.append(y_max - lastLeft)
+    yVec.append(lastRight - y_max)
+    random.shuffle(yVec)
+
+    pairs = zip(xVec, yVec)
+    sorted_pairs = sorted(pairs, key=lambda pair: math.atan2(pair[0], pair[1]))
+
+    minPolygonX = 0
+    minPolygonY = 0
+    x = 0
+    y = 0
+    points = list()
+
+    for pair in sorted_pairs:
+        points.append((x, y))
+        x += pair[0]
+        y += pair[1]
+        minPolygonX = min(minPolygonX, x)
+        minPolygonY = min(minPolygonY, y)
+
+    x_shift = x_min - minPolygonX
+    y_shift = y_min - minPolygonY
+
+    points = np.asarray(points) + np.array([x_shift, y_shift]).T + np.array([x_pos, y_pos]).T
+    return points
+
+
 class Ship:
     def __init__(self, space, v, x, y, theta):
         self.vertices = [(0, 2), (0.5, 1), (0.5, -1), (-0.5, -1), (-0.5, 1)]
@@ -454,11 +535,23 @@ class Ship:
         self.body.velocity = v
         self.body.angle = math.radians(theta)
         self.shape = pymunk.Poly(self.body, self.vertices)
+        # self.shape = pymunk.Circle(self.body, 0.5)
         space.add(self.body, self.shape)
         self.path_pos = 0
 
     def set_path_pos(self, path_pos):
         self.path_pos = path_pos
+
+
+def calc_turn_radius(rate, speed):
+    '''
+    rate: deg/min
+    speed: knots
+    '''
+    theta = rate * math.pi / 180  # convert to rads
+    s = speed * 30.8667  # convert to m
+    turn_radius = s/theta
+    return turn_radius
 
 
 def main():
@@ -473,9 +566,9 @@ def main():
     goal_pos = (6, 65, 0)
     cost_map = np.zeros((n, m))
 
-    list_of_obstacles = generate_obstacles(start_pos, goal_pos, n, m, 12, 2, 4)
+    list_of_obstacles = generate_obstacles(start_pos, goal_pos, n, m, 12, 2, 3)
     # [[36, 8, 4], [47, 7, 2], [51, 15, 2], [54, 7, 4], [22, 14, 3], [28, 14, 2], [28, 7, 4], [55, 15, 2], [48, 11, 2], [44, 14, 3], [32, 13, 2]]
-    #list_of_obstacles = [[51, 12, 3], [44, 12, 3], [27, 16, 3], [57, 16, 2], [42, 5, 3], [31, 9, 3], [18, 3, 2], [24, 9, 2], [55, 6, 2]]
+    # list_of_obstacles = [[51, 12, 3], [44, 12, 3], [27, 16, 3], [57, 16, 2], [42, 5, 3], [31, 9, 3], [18, 3, 2], [24, 9, 2], [55, 6, 2]]
     for row in list_of_obstacles:
         cost_map = cm.create_circle(row, cost_map, scale)
     print(list_of_obstacles)
@@ -486,16 +579,29 @@ def main():
     ordinal_swaths = generate_swath(prim.edge_set_ordinal, turning_radius, 1)
     cardinal_swaths = generate_swath(prim.edge_set_cardinal, turning_radius, 0)
 
+    # print("generate polygon")
+    # points = generate_polygon(4,6, 2, 3)
+    # print(points)
+    # poly = patches.Polygon(points, True)
+    # fig, ax = plt.subplots()
+    # ax = plt.axes(xlim=(0, 10), ylim=(0, 10))
+    # ax.add_patch(poly)
+    # plt.show()
+
+    turn_radius = calc_turn_radius(15, 4)
+    print("turn radius", turn_radius)
     t0 = time.clock()
-    worked, L, edge_path, nodes_visited, x1, y1, x2, y2 = a_star(start_pos, goal_pos, turning_radius, n, m, cost_map, prim.edge_set_cardinal,
-                                                                 prim.edge_set_ordinal, cardinal_swaths, ordinal_swaths, list_of_obstacles)
+    worked, L, edge_path, nodes_visited, x1, y1, x2, y2 = a_star(start_pos, goal_pos, turning_radius, n, m, cost_map,
+                                                                 prim.edge_set_cardinal, prim.edge_set_ordinal, cardinal_swaths,
+                                                                 ordinal_swaths, list_of_obstacles)
+
     t1 = time.clock() - t0
     print("Time elapsed: ", t1)
-    print("Hz", 1/t1)
+    print("Hz", 1 / t1)
 
     fig1, ax1 = plt.subplots(1, 2)
 
-    #'''
+    # '''
     if worked:
         ax1[0].imshow(cost_map, origin='lower')
         xmax = 0
@@ -527,9 +633,12 @@ def main():
         print(np.shape(path))
 
         for obs in list_of_obstacles:
-            ax1[0].add_patch(patches.Circle((obs[1], obs[0]), obs[2], fill=False))
-        ax1[0].plot(x1, y1, 'bx')
-        ax1[0].plot(x2, y2, 'gx')
+            # ax1[0].add_patch(patches.Circle((obs[1], obs[0]), obs[2], fill=False))
+            vs = generate_polygon(obs[2] * 2, 6, obs[1] - obs[2], obs[0] - obs[2])
+            poly = patches.Polygon(vs, True)
+            ax1[0].add_patch(poly)
+        # ax1[0].plot(x1, y1, 'bx')
+        # ax1[0].plot(x2, y2, 'gx')
     else:
         path = 0
 
@@ -538,12 +647,11 @@ def main():
     for node in nodes_visited:
         node_plot[node[1], node[0]] = node_plot[node[1], node[0]] + 1
 
-
     ax1[1].imshow(node_plot, origin='lower')
-    #'''
-    #'''
+    # '''
+    # '''
     print("Total Cost:", L, sep=" ")
-    print("Num of nodes expanded",np.sum(node_plot))
+    print("Num of nodes expanded", np.sum(node_plot))
 
     space = pymunk.Space()
     space.gravity = (0, 0)
@@ -562,6 +670,7 @@ def main():
         i += 1
 
     ship_patch = patches.Polygon(vs, True)
+    # ship_patch = patches.Circle((ship.body.position.x, ship.body.position.y), 0.5)
 
     for row in list_of_obstacles:
         circles.append(create_circle(space, row[1], row[0], row[2]))
@@ -643,6 +752,9 @@ def main():
         R = np.asarray([[math.cos(heading), -math.sin(heading)], [math.sin(heading), math.cos(heading)]])
         vs = np.asarray(ship.shape.get_vertices()) @ R + np.asarray(ship.body.position)
         patch.set_xy(vs)
+        # pos_x = ship.body.position.x
+        # pos_y = ship.body.position.y
+        # patch.center = (pos_x, pos_y)
         return patch,
 
     def animate_obstacle(dt, circle, patch):
@@ -662,8 +774,6 @@ def main():
                                    repeat=False)
 
     plt.show()
-
-    #'''
 
 
 if __name__ == "__main__":
