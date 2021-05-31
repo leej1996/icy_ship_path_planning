@@ -12,10 +12,12 @@ import dubins
 import time
 import random
 
+from primitives import Primitives
+
 
 class CustomPriorityQueue(PriorityQueue):
     def _put(self, item):
-        return super()._put((self._get_priority(item), item))
+        return super()._put((self._get_priority(item), item))  # prioritized based on f score
 
     def _get(self):
         return super()._get()[1]
@@ -24,7 +26,7 @@ class CustomPriorityQueue(PriorityQueue):
         return item[1]
 
     def _update(self, item, update_value):
-        self.queue.remove(((item[1]), (item[0], item[1])))
+        self.queue.remove(((item[1]), (item[0], item[1])))  # custom queue to update the priorities of objects
         self._put((item[0], update_value))
 
 
@@ -61,16 +63,14 @@ def generate_swath(edge_set, turning_radius, heading):
     Will have key of (edge, start heading)
     '''
     swath_set = dict()
-    R = np.asarray(
-        [[math.cos(math.pi / 2), -math.sin(math.pi / 2), 0], [math.sin(math.pi / 2), math.cos(math.pi / 2), 0],
-         [0, 0, 1]])
     start_pos = (5, 5, heading)
     for e in edge_set:
+        e = tuple(e)
         array = np.zeros((11, 11), dtype=bool)
         swath = [[start_pos[0], start_pos[1]]]
-        rot_e = R @ np.asarray(e).T + np.array([start_pos[0], start_pos[1], 0])
+        translated_e = np.asarray(e) + np.array([start_pos[0], start_pos[1], 0])
         dubins_path = dubins.shortest_path((start_pos[0], start_pos[1], math.radians((start_pos[2] + 2) * 45)),
-                                           (rot_e[0], rot_e[1], math.radians((rot_e[2] + 2) * 45) % (2 * math.pi)),
+                                           (translated_e[0], translated_e[1], math.radians((translated_e[2] + 2) * 45) % (2 * math.pi)),
                                            turning_radius)
         configurations, _ = dubins_path.sample_many(0.01)
         x = list()
@@ -96,7 +96,10 @@ def generate_swath(edge_set, turning_radius, heading):
 def get_swath(e, n, b, start_pos, swath_set):
     swath = np.zeros((n, b), dtype=bool)
     heading = int(start_pos[2])
-    swath1 = swath_set[e, heading]
+    swath1 = swath_set[tuple(e), heading]
+
+    # swath mask has starting node at the centre (11x11) and want to put at the starting node of currently expanded node
+    # in the costmap, need to remove the extra columns/rows of the swath mask
 
     swath_size = swath1.shape[0]
     min_y = start_pos[1] - 5
@@ -145,8 +148,8 @@ def Concat(x, y):
         rot = rot - math.pi/4
         heading = p2_theta + rot
 
-    R = np.array([[math.cos(rot + math.pi/2), -math.sin(rot + math.pi/2)],
-                  [math.sin(rot + math.pi/2), math.cos(rot + math.pi/2)]])
+    R = np.array([[math.cos(rot), -math.sin(rot)],
+                  [math.sin(rot), math.cos(rot)]])
     multiplication = np.matmul(R, np.transpose(np.asarray(p2)))
 
     result = np.asarray(p1) + multiplication
@@ -163,25 +166,6 @@ def is_point_in_set(point, set):
         if dist(point, point1) < 0.001 and abs(point[2] - point1[2]) < 0.001:
             return True, point1
     return False, False
-
-
-def is_point_in_set_euclid(point, set):
-    for point1 in set:
-        if dist(point, point1) < 0.001:
-            return True, point1
-    return False, False
-
-
-def is_node_in_gen_cap(generation, m, node, set):
-    '''
-    Go through last m generations and check if node was found in that time
-    '''
-    for gen in range(0,m):
-        temp_copy = copy.deepcopy(set[generation - gen])
-        while not temp_copy.empty():
-            if node == temp_copy.get():
-                return True
-    return False
 
 
 def dist(a, b):
@@ -203,13 +187,6 @@ def heuristic(p_initial, p_final, turning_radius):
     return path.path_length()
 
 
-def dubins_shortest_path(p_initial, p_final, turning_radius):
-    """
-    The Dubins' distance from initial to final points.
-    """
-
-
-
 def near_obstacle(node, list_of_obstacles):
     for obs in list_of_obstacles:
         # check if ship is within radius + 5 squares of the center of obstacle, then do swath
@@ -225,77 +202,6 @@ def past_obstacle(node, obs):
         return True
     else:
         return False
-
-
-def a_star_euclid(start, goal, n, b, cost_map):
-    openSet = [start]
-    closedSet = []
-    cameFrom = dict()
-    cameFrom[start] = None
-    # cost from start
-    g_score = dict()
-    g_score[start] = 0
-    # heuristic (estimation of cost to goal)
-    f_score = dict()
-    f_score[start] = dist(start, goal)
-    # priority queue of all visited node f scores
-    f_score_open_sorted = CustomPriorityQueue()
-    f_score_open_sorted.put((start, f_score[start]))
-
-    while np.shape(openSet)[0] != 0:
-        # node[0] = x position
-        # node[1] = y position
-        # node[2] = theta (heading)
-
-        node = f_score_open_sorted.get()[0]
-        if node == goal:
-            path = list()
-            cameFrom[goal] = cameFrom[node]
-            path.append(goal)
-            while node != start:
-                pred = cameFrom[node]
-                node = pred
-                path.append(node)
-            return (True, f_score[goal])
-
-        openSet.remove(node)
-        closedSet.append(node)
-
-        x = node[0]
-        y = node[1]
-        #(pm1, 0), (pm3, pm1), (pm2, pm1), (pm1, pm1), (pm1, pm2), (pm1, pm3), (0, pm1),
-        neighbour_list = [(x + 3, y + 1), (x - 3, y + 1), (x + 3, y - 1), (x - 3, y - 1),
-                          (x + 2, y + 1), (x - 2, y + 1), (x + 2, y - 1), (x - 2, y - 1),
-                          (x + 1, y + 2), (x + 1, y - 2), (x - 1, y + 2), (x - 1, y - 2),
-                          (x + 1, y + 3), (x + 1, y - 3), (x - 1, y + 3), (x - 1, y - 3),
-                          (x + 1, y + 1), (x + 1, y - 1), (x - 1, y + 1),(x - 1, y - 1),
-                          (x, y + 1), (x + 1, y),(x - 1, y), (x, y - 1)]
-        for neighbour in neighbour_list:
-            if 0 <= neighbour[0] < b and 0 <= neighbour[1] < n:
-                # check if point is in closed set
-                neighbour_in_closed_set, closed_set_neighbour, = is_point_in_set_euclid(neighbour, closedSet)
-                if neighbour_in_closed_set:
-                    #print("hello")
-                    continue
-
-                swath_cost = cost_map[neighbour[1],neighbour[0]]
-                cost = swath_cost + dist(node, neighbour)
-                temp_g_score = g_score[node] + cost
-                neighbour_in_open_set, open_set_neighbour = is_point_in_set_euclid(neighbour, openSet)
-                if not neighbour_in_open_set:
-                    openSet.append(neighbour)
-                    cameFrom[neighbour] = node
-                    g_score[neighbour] = temp_g_score
-                    f_score[neighbour] = g_score[neighbour] + dist(neighbour, goal)
-                    f_score_open_sorted.put((neighbour, f_score[neighbour]))
-                elif neighbour_in_open_set and temp_g_score < g_score[open_set_neighbour]:
-                    cameFrom[open_set_neighbour] = node
-                    g_score[open_set_neighbour] = temp_g_score
-                    f_score_open_sorted._update((open_set_neighbour, f_score[open_set_neighbour]),
-                                                 g_score[open_set_neighbour] + dist(open_set_neighbour, goal))
-                    f_score[open_set_neighbour] = g_score[open_set_neighbour] + dist(open_set_neighbour, goal)
-
-    return (False, 'Fail',)
 
 
 def path_smoothing(path, path_length, cost_map, turning_radius, start, goal, nodes, n, m):
@@ -389,8 +295,9 @@ def a_star(start, goal, turning_radius, n, m, cost_map, card_edge_set, ord_edge_
     a = 0.2
     b = 0.8
     free_path_interval = 5
-    generation = 0
-    openSet = dict()
+    generation = 0  # number of nodes expanded
+    openSet = dict()  # set of nodes considered for expansion
+    print("start", start)
     openSet[start] = generation
     closedSet = []
     cameFrom = dict()
@@ -410,7 +317,7 @@ def a_star(start, goal, turning_radius, n, m, cost_map, card_edge_set, ord_edge_
     heading_delta[start] = 0
     # priority queue of all visited node f scores
     f_score_open_sorted = CustomPriorityQueue()
-    f_score_open_sorted.put((start,f_score[start]))
+    f_score_open_sorted.put((start,f_score[start]))  # put item in priority queue
 
     #while np.shape(openSet)[0] != 0:
     while len(openSet) != 0:
@@ -443,6 +350,7 @@ def a_star(start, goal, turning_radius, n, m, cost_map, card_edge_set, ord_edge_
             print("Found path")
             path = list()
             new_path_length = list()
+            print("goal", goal)
             cameFrom[goal] = cameFrom[node]
             path.append(goal)
             new_path_length.append(path_length[goal])
@@ -455,7 +363,8 @@ def a_star(start, goal, turning_radius, n, m, cost_map, card_edge_set, ord_edge_
 
             path.reverse()  # path: start -> goal
             new_path_length.reverse()
-            add_nodes = int(len(path)/3)
+            print("path", path)
+            add_nodes = int(len(path)/3)  # number of nodes to add in the path smoothing algorithm
             t0 = time.clock()
             smooth_path, x1, y1, x2, y2 = path_smoothing(path, new_path_length, cost_map, turning_radius, start, goal, add_nodes, n, m)
             t1 = time.clock() - t0
@@ -559,7 +468,7 @@ def main():
     m = 20
     theta = 0  # Possible values: 0 - 7, each number should be multiplied by 45 degrees (measured CCW from up)
     turning_radius = 0.999
-    scale = 3
+    scale = 3  # penalize obstacles
     start_pos = (5, 10, theta)
     goal_pos = (6, 65, 0)
     cost_map = np.zeros((n, m))
@@ -572,51 +481,14 @@ def main():
     print(list_of_obstacles)
     # y is pointing up, x is pointing to the right
     # must rotate all swaths pi/4 CCW to be facing up
-    edge_set_cardinal = [(1, 0, 0),
-                         (2, 1, 0),
-                         (2, -1, 0),
-                         (2, 1, 1),
-                         (2, -1, 7),
-                         (2, 2, 1),
-                         (2, -2, 7),
-                         (3, 0, 1),
-                         (3, 0, 7),
-                         (3, 2, 0),
-                         (3, -2, 0),
-                         (3, 3, 2),
-                         (3, -3, 6),
-                         (3, 4, 2),
-                         (3, -4, 6),
-                         (3, 5, 2),
-                         (3, -5, 6),
-                         (4, 5, 0),
-                         (4, -5, 0)]
-    edge_set_ordinal = [(0, 3, 2),
-                        (0, 4, 3),
-                        (0, 5, 1),
-                        (0, 5, 3),
-                        (1, 1, 1),
-                        (1, 2, 1),
-                        (1, 2, 2),
-                        (1, 3, 1),
-                        (1, 4, 1),
-                        (2, 1, 0),
-                        (2, 1, 1),
-                        (2, 2, 0),
-                        (2, 2, 2),
-                        (3, 0, 0),
-                        (3, 1, 1),
-                        (4, 0, 7),
-                        (4, 1, 1),
-                        (5, 0, 1),
-                        (5, 0, 7)]
+    prim = Primitives(rotate=True)
 
-    ordinal_swaths = generate_swath(edge_set_ordinal, turning_radius, 1)
-    cardinal_swaths = generate_swath(edge_set_cardinal, turning_radius, 0)
+    ordinal_swaths = generate_swath(prim.edge_set_ordinal, turning_radius, 1)
+    cardinal_swaths = generate_swath(prim.edge_set_cardinal, turning_radius, 0)
 
     t0 = time.clock()
-    worked, L, edge_path, nodes_visited, x1, y1, x2, y2 = a_star(start_pos, goal_pos, turning_radius, n, m, cost_map, edge_set_cardinal,
-                                                          edge_set_ordinal, cardinal_swaths, ordinal_swaths, list_of_obstacles)
+    worked, L, edge_path, nodes_visited, x1, y1, x2, y2 = a_star(start_pos, goal_pos, turning_radius, n, m, cost_map, prim.edge_set_cardinal,
+                                                                 prim.edge_set_ordinal, cardinal_swaths, ordinal_swaths, list_of_obstacles)
     t1 = time.clock() - t0
     print("Time elapsed: ", t1)
     print("Hz", 1/t1)
@@ -630,7 +502,7 @@ def main():
         ymax = 0
         PATH = [i for i in edge_path[::-1]]
         path = np.zeros((2, 1))
-        
+
         for i in range(np.shape(PATH)[0] - 1):
             P1 = PATH[i]
             P2 = PATH[i + 1]
@@ -662,10 +534,10 @@ def main():
         path = 0
 
     node_plot = np.zeros((n, m))
-    
+
     for node in nodes_visited:
         node_plot[node[1], node[0]] = node_plot[node[1], node[0]] + 1
-    
+
 
     ax1[1].imshow(node_plot, origin='lower')
     #'''
@@ -790,7 +662,7 @@ def main():
                                    repeat=False)
 
     plt.show()
-    
+
     #'''
 
 
