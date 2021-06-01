@@ -5,7 +5,8 @@ import matplotlib.pyplot as plt
 
 
 class Primitives:
-    def __init__(self, rotate=True):
+    def __init__(self, scale=None, rotate=True):
+        self.scale = scale
         self.edge_set_cardinal = np.asarray([
             (1, 0, 0),
             (2, 1, 0),
@@ -48,6 +49,10 @@ class Primitives:
             (5, 0, 1),
             (5, 0, 7)
         ])
+
+        if self.scale is not None:
+            self.edge_set_ordinal *= scale
+            self.edge_set_cardinal *= scale
 
         if rotate:
             self.rotate()
