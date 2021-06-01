@@ -130,6 +130,7 @@ def get_swath(e, n, b, start_pos, swath_set):
         overhang = abs(min_y)
         swath1 = np.delete(swath1, slice(0, overhang), axis=0)
         min_y = 0
+    print(max_x, min_x, max_y, min_y)
     swath[min_y:max_y, min_x:max_x] = swath1
 
     return swath
@@ -342,7 +343,7 @@ def a_star(start, goal, turning_radius, n, m, cost_map, card_edge_set, ord_edge_
         node = f_score_open_sorted.get()[0]
 
         # print("Generation: ", generation, sep=" ")
-        # print("NODE:", node, sep=" ")
+        print("NODE:", node, sep=" ")
 
         # If ship past all obstacles, calc direct dubins path to goal
 
@@ -409,9 +410,9 @@ def a_star(start, goal, turning_radius, n, m, cost_map, card_edge_set, ord_edge_
             swath_set = ordinal_swath
 
         for e in edge_set:
-            # print("edge:", e, sep=" ")
+            print("edge:", e, sep=" ")
             neighbour = Concat(node, e)
-            # print("neighbour:",neighbour, sep=" ")
+            print("neighbour:",neighbour, sep=" ")
 
             if 0 <= neighbour[0] < m and 0 <= neighbour[1] < n:
                 # print("neighbour is valid")
@@ -604,9 +605,9 @@ def main():
     #print("turn radius", turn_radius)
     t0 = time.clock()
     worked, L, edge_path, nodes_visited, x1, y1, x2, y2 = a_star(start_pos, goal_pos, turning_radius, n, m, cost_map,
-                                                                 prim.edge_set_cardinal, prim.edge_set_ordinal, cardinal_swaths,
-                                                                 ordinal_swaths, list_of_obstacles)
-
+                                                                 edge_set_cardinal,
+                                                                 edge_set_ordinal, cardinal_swaths, ordinal_swaths,
+                                                                 list_of_obstacles)
     t1 = time.clock() - t0
     print("Time elapsed: ", t1)
     print("Hz", 1 / t1)
