@@ -51,8 +51,8 @@ class Primitives:
         ])
 
         if self.scale is not None:
-            self.edge_set_ordinal *= scale
-            self.edge_set_cardinal *= scale
+            self.edge_set_ordinal[:, :2] *= scale
+            self.edge_set_cardinal[:, :2] *= scale
 
         if rotate:
             self.rotate()
