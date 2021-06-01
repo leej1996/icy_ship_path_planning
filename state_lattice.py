@@ -7,12 +7,14 @@ import cost_map as cm
 import pymunk
 from pymunk.vec2d import Vec2d
 from queue import PriorityQueue
+from skimage.draw import polygon
 import copy
 import dubins
 import time
 import random
 
 from primitives import Primitives
+
 
 
 class CustomPriorityQueue(PriorityQueue):
@@ -59,32 +61,36 @@ def generate_obstacles(start, goal, n, m, num_obs, min_r, max_r, upper_offset, l
     return obstacles
 
 
-def generate_swath(edge_set, turning_radius, heading):
+def generate_swath(vertices, edge_set, turning_radius, heading):
     '''
     Will have key of (edge, start heading)
     '''
     swath_set = dict()
-    start_pos = (150, 150, heading)
+    start_pos = (155, 155, heading)
 
     for e in edge_set:
         e = tuple(e)
         #array = np.zeros((11, 11), dtype=bool)
-        array = np.zeros((301,301), dtype=bool)
-        swath = [[start_pos[0], start_pos[1]]]
+        array = np.zeros((311,311), dtype=bool) # (max size (150) + max length of boat rounded up (5)) * 2 + 1
         translated_e = np.asarray(e) + np.array([start_pos[0], start_pos[1], 0])
         dubins_path = dubins.shortest_path((start_pos[0], start_pos[1], math.radians((start_pos[2] + 2) * 45)),
                                            (translated_e[0], translated_e[1], math.radians((translated_e[2] + 2) * 45) % (2 * math.pi)),
                                            turning_radius)
-        configurations, _ = dubins_path.sample_many(0.01)
+        configurations, _ = dubins_path.sample_many(0.5)
+
         for config in configurations:
             x_cell = int(round(config[0]))
             y_cell = int(round(config[1]))
-            heading = config[2]
-            if [x_cell, y_cell] not in swath:
-                swath.append([x_cell, y_cell])
+            theta = config[2] - math.pi/2
+            R = np.asarray([
+                [np.cos(theta), -np.sin(theta)],
+                [np.sin(theta), np.cos(theta)]
+            ])
+            rot_vi = np.round(np.array([[x_cell], [y_cell]]) + R @ vertices.T).astype(int)
 
-        for pair in swath:
-            array[pair[1], pair[0]] = True
+            rr, cc = polygon(rot_vi[1, :], rot_vi[0, :])
+            array[rr, cc] = True
+
         swath_set[e, 0 + heading] = array
         swath_set[e, 2 + heading] = np.flip(array.T, 1)  # Rotate 90 degrees CCW
         swath_set[e, 4 + heading] = np.flip(np.flip(array, 1), 0)  # Rotate 180 degrees CCW
@@ -102,10 +108,10 @@ def get_swath(e, n, b, start_pos, swath_set):
     # in the costmap, need to remove the extra columns/rows of the swath mask
 
     swath_size = swath1.shape[0]
-    min_y = start_pos[1] - 150
-    max_y = start_pos[1] + 151
-    min_x = start_pos[0] - 150
-    max_x = start_pos[0] + 151
+    min_y = start_pos[1] - 155
+    max_y = start_pos[1] + 156
+    min_x = start_pos[0] - 155
+    max_x = start_pos[0] + 156
     # Too far to the right
     if max_x >= b:
         overhang = max_x - (b - 1)
@@ -585,6 +591,14 @@ def main():
     goal_pos = (20, 390, 0)
     cost_map = np.zeros((n, m))
 
+    # ship vertices
+    v = np.array([[-1, 4],
+                  [1, 4],
+                  [1, -4],
+                  [-1, -4]])
+    #vx = np.array([-1, 1, 1, -1])
+    #vy = np.array([4, 4, -4, -4])
+
     list_of_obstacles = generate_obstacles(start_pos, goal_pos, n, m, 80, 1, 10, 70, 20)
     for obs in list_of_obstacles:
         cost_map = cm.create_circle(obs, cost_map, scale)
@@ -593,8 +607,8 @@ def main():
     # must rotate all swaths pi/4 CCW to be facing up
     prim = Primitives(scale=30, rotate=True)
 
-    ordinal_swaths = generate_swath(prim.edge_set_ordinal, turning_radius, 1)
-    cardinal_swaths = generate_swath(prim.edge_set_cardinal, turning_radius, 0)
+    ordinal_swaths = generate_swath(v, prim.edge_set_ordinal, turning_radius, 1)
+    cardinal_swaths = generate_swath(v, prim.edge_set_cardinal, turning_radius, 0)
 
     #turn_radius = calc_turn_radius(15, 4)
     #print("turn radius", turn_radius)
