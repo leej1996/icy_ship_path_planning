@@ -549,7 +549,7 @@ def main():
         print(np.shape(path))
 
         for obs in costmap_obj.obstacles:
-            ax1[0].add_patch(patches.Polygon(obs['vertices'], True))
+            ax1[0].add_patch(patches.Polygon(obs['vertices'], True, fill=False))
         ax1[0].plot(x1, y1, 'bx')
         ax1[0].plot(x2, y2, 'gx')
     else:
