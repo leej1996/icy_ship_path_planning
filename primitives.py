@@ -90,4 +90,3 @@ class Primitives:
 
         self.edge_set_cardinal = np.round((self.edge_set_cardinal @ R.T)).astype(int)
         self.edge_set_ordinal = np.round((self.edge_set_ordinal @ R.T)).astype(int)
-
