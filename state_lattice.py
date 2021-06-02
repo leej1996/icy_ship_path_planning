@@ -1,17 +1,16 @@
 import math
-import numpy as np
-from matplotlib import pyplot as plt
-from matplotlib import patches
-from matplotlib import animation
-import cost_map as cm
-import pymunk
-from pymunk.vec2d import Vec2d
-from queue import PriorityQueue
-import copy
-import dubins
 import time
-import random
+from queue import PriorityQueue
 
+import dubins
+import numpy as np
+import pymunk
+from matplotlib import animation
+from matplotlib import patches
+from matplotlib import pyplot as plt
+from pymunk.vec2d import Vec2d
+
+from cost_map import CostMap
 from primitives import Primitives
 
 
@@ -30,35 +29,6 @@ class CustomPriorityQueue(PriorityQueue):
         self._put((item[0], update_value))
 
 
-def generate_obstacles(start, goal, n, m, num_obs, min_r, max_r, upper_offset, lower_offset):
-    obstacles = list()
-    protection = 0
-    #print("max y", goal[1] - offset - max_r)
-    x = random.randint(max_r, m - max_r - 1)
-    y = random.randint(start[1] + lower_offset + max_r, goal[1] - upper_offset - max_r)
-    r = random.randint(min_r, max_r)
-    obstacles.append([y, x, r])
-    while len(obstacles) < num_obs - 1:
-        near_obs = False
-        x = random.randint(max_r, m - max_r - 1)
-        y = random.randint(start[1] + lower_offset + max_r, goal[1] - upper_offset - max_r)
-        r = random.randint(min_r, max_r)
-        # check if obstacles overlap
-        for obs in obstacles:
-            if ((x - obs[1]) ** 2 + (y - obs[0]) ** 2) ** 0.5 < obs[2] + r:
-                near_obs = True
-                continue
-        if not near_obs:
-            obstacles.append([y, x, r])
-
-        protection += 1
-
-        if protection > 300:
-            break
-
-    return obstacles
-
-
 def generate_swath(edge_set, turning_radius, heading):
     '''
     Will have key of (edge, start heading)
@@ -68,17 +38,15 @@ def generate_swath(edge_set, turning_radius, heading):
 
     for e in edge_set:
         e = tuple(e)
-        array = np.zeros((11, 11), dtype=bool)
-        #array = np.zeros((11, 11), dtype=bool)
-        array = np.zeros((301,301), dtype=bool)
+        array = np.zeros((301, 301), dtype=bool)
         swath = [[start_pos[0], start_pos[1]]]
         translated_e = np.asarray(e) + np.array([start_pos[0], start_pos[1], 0])
         dubins_path = dubins.shortest_path((start_pos[0], start_pos[1], math.radians((start_pos[2] + 2) * 45)),
                                            (translated_e[0], translated_e[1], math.radians((translated_e[2] + 2) * 45) % (2 * math.pi)),
                                            turning_radius)
         configurations, _ = dubins_path.sample_many(0.01)
-        x = list()
-        y = list()
+        x = []
+        y = []
         for config in configurations:
             x.append(config[0])
             y.append(config[1])
@@ -194,7 +162,7 @@ def heuristic(p_initial, p_final, turning_radius):
 def near_obstacle(node, list_of_obstacles):
     for obs in list_of_obstacles:
         # check if ship is within radius + 5 squares of the center of obstacle, then do swath
-        if dist(node, (obs[1], obs[0])) < obs[2] + 5 and not past_obstacle(node, obs):
+        if dist(node, obs['centre']) < obs['radius'] + 5 and not past_obstacle(node, obs):  # TODO: this should be updated for polygon obstacles
             return True
     return False
 
@@ -202,10 +170,7 @@ def near_obstacle(node, list_of_obstacles):
 def past_obstacle(node, obs):
     # also check if ship is past all obstacles (under assumption that goal is always positive y direction from start)
     # obstacle y coord + radius
-    if node[1] > obs[0] + obs[2]:
-        return True
-    else:
-        return False
+    return node[1] > obs['centre'][1] + obs['radius']
 
 
 def path_smoothing(path, path_length, cost_map, turning_radius, start, goal, nodes, n, m):
@@ -476,76 +441,6 @@ def create_circle(space, x, y, r):
     return shape
 
 
-def generate_polygon(n, N, x_pos, y_pos):
-    # generate two lists of x and y of N random integers between 0 and n
-    x = [random.uniform(0, n) for _ in range(N)]
-    y = [random.uniform(0, n) for _ in range(N)]
-
-    # sort both lists
-    x.sort()
-    y.sort()
-
-    x_max = x[-1]
-    y_max = y[-1]
-    x_min = x[0]
-    y_min = y[0]
-
-    lastTop = x_min
-    lastBot = x_min
-    xVec = list()
-
-    for i in range(1, N - 1):
-        val = x[i]
-        if bool(random.getrandbits(1)):
-            xVec.append(val - lastTop)
-            lastTop = val
-        else:
-            xVec.append(lastBot - val)
-            lastBot = val
-
-    xVec.append(x_max - lastTop)
-    xVec.append(lastBot - x_max)
-
-    lastLeft = y_min
-    lastRight = y_min
-    yVec = list()
-
-    for i in range(1, N - 1):
-        val = y[i]
-        if bool(random.getrandbits(1)):
-            yVec.append(val - lastLeft)
-            lastLeft = val
-        else:
-            yVec.append(lastRight - val)
-            lastRight = val
-
-    yVec.append(y_max - lastLeft)
-    yVec.append(lastRight - y_max)
-    random.shuffle(yVec)
-
-    pairs = zip(xVec, yVec)
-    sorted_pairs = sorted(pairs, key=lambda pair: math.atan2(pair[0], pair[1]))
-
-    minPolygonX = 0
-    minPolygonY = 0
-    x = 0
-    y = 0
-    points = list()
-
-    for pair in sorted_pairs:
-        points.append((x, y))
-        x += pair[0]
-        y += pair[1]
-        minPolygonX = min(minPolygonX, x)
-        minPolygonY = min(minPolygonY, y)
-
-    x_shift = x_min - minPolygonX
-    y_shift = y_min - minPolygonY
-
-    points = np.asarray(points) + np.array([x_shift, y_shift]).T + np.array([x_pos, y_pos]).T
-    return points
-
-
 class Ship:
     def __init__(self, space, v, x, y, theta):
         self.vertices = [(0, 2), (0.5, 1), (0.5, -1), (-0.5, -1), (-0.5, 1)]
@@ -574,25 +469,22 @@ def calc_turn_radius(rate, speed):
 
 
 def main():
-    # resolution is 1 turning radius TBD
     # Resolution is 10 m
-    # ice tank is 76 x 12 m
-    #n = 76
-    #m = 20
     n = 400
     m = 50
     theta = 0  # Possible values: 0 - 7, each number should be multiplied by 45 degrees (measured CCW from up)
-    #turning_radius = 0.999
-    turning_radius = 29.9999 # 300 m turn radius
-    scale = 3
+    turning_radius = 29.9999  # 300 m turn radius
+    obstacle_penalty = 3
     start_pos = (40, 10, theta)
     goal_pos = (20, 390, 0)
-    cost_map = np.zeros((n, m))
 
-    list_of_obstacles = generate_obstacles(start_pos, goal_pos, n, m, 80, 1, 10, 70, 20)
-    for obs in list_of_obstacles:
-        cost_map = cm.create_circle(obs, cost_map, scale)
-    print(list_of_obstacles)
+    # initialize costmap
+    costmap_obj = CostMap(n, m, obstacle_penalty)
+
+    # generate random obstacles
+    costmap_obj.generate_obstacles(start_pos, goal_pos, num_obs=80, min_r=1, max_r=10, upper_offset=70, lower_offset=20)
+    print(costmap_obj.obstacles)
+
     # y is pointing up, x is pointing to the right
     # must rotate all swaths pi/4 CCW to be facing up
     prim = Primitives(scale=30, rotate=True)
@@ -603,9 +495,9 @@ def main():
     #turn_radius = calc_turn_radius(15, 4)
     #print("turn radius", turn_radius)
     t0 = time.clock()
-    worked, L, edge_path, nodes_visited, x1, y1, x2, y2 = a_star(start_pos, goal_pos, turning_radius, n, m, cost_map,
+    worked, L, edge_path, nodes_visited, x1, y1, x2, y2 = a_star(start_pos, goal_pos, turning_radius, n, m, costmap_obj.cost_map,
                                                                  prim.edge_set_cardinal, prim.edge_set_ordinal, cardinal_swaths,
-                                                                 ordinal_swaths, list_of_obstacles)
+                                                                 ordinal_swaths, costmap_obj.obstacles)
 
     t1 = time.clock() - t0
     print("Time elapsed: ", t1)
@@ -615,7 +507,7 @@ def main():
 
     # '''
     if worked:
-        ax1[0].imshow(cost_map, origin='lower')
+        ax1[0].imshow(costmap_obj.cost_map, origin='lower')
         xmax = 0
         ymax = 0
         PATH = [i for i in edge_path[::-1]]
@@ -644,11 +536,8 @@ def main():
         path = np.delete(path, 0, 1)
         print(np.shape(path))
 
-        for obs in list_of_obstacles:
-            ax1[0].add_patch(patches.Circle((obs[1], obs[0]), obs[2], fill=False))
-            vs = generate_polygon(obs[2] * 2, 6, obs[1] - obs[2], obs[0] - obs[2])
-            poly = patches.Polygon(vs, True)
-            ax1[0].add_patch(poly)
+        for obs in costmap_obj.obstacles:
+            ax1[0].add_patch(patches.Polygon(obs['vertices'], True))
         ax1[0].plot(x1, y1, 'bx')
         ax1[0].plot(x2, y2, 'gx')
     else:
@@ -665,6 +554,12 @@ def main():
     # '''
     print("Total Cost:", L, sep=" ")
     print("Num of nodes expanded", np.sum(node_plot))
+    plt.show()
+
+    plt.imshow(costmap_obj.cost_map)
+    plt.show()
+    # FIXME: skipping pymunk stuff for now
+    exit()
 
     space = pymunk.Space()
     space.gravity = (0, 0)
@@ -685,9 +580,10 @@ def main():
     ship_patch = patches.Polygon(vs, True)
     # ship_patch = patches.Circle((ship.body.position.x, ship.body.position.y), 0.5)
 
-    for row in list_of_obstacles:
-        circles.append(create_circle(space, row[1], row[0], row[2]))
-        patch_list.append(patches.Circle((row[1], row[0]), row[2], fill=False))
+    # TODO: update pymunk stuff
+    for obs in costmap_obj.obstacles:
+        circles.append(create_circle(space, *obs['centre'], obs['radius']))
+        patch_list.append(patches.Circle(*obs['centre'], obs['radius'], fill=False))
 
     path = path.T
     heading_list = np.zeros(np.shape(path)[0])
