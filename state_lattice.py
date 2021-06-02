@@ -482,7 +482,7 @@ def main():
     costmap_obj = CostMap(n, m, obstacle_penalty)
 
     # generate random obstacles
-    costmap_obj.generate_obstacles(start_pos, goal_pos, num_obs=80, min_r=1, max_r=10, upper_offset=70, lower_offset=20)
+    costmap_obj.generate_obstacles(start_pos, goal_pos, num_obs=160, min_r=1, max_r=10, upper_offset=70, lower_offset=20)
     print(costmap_obj.obstacles)
 
     # y is pointing up, x is pointing to the right
@@ -503,7 +503,7 @@ def main():
     print("Time elapsed: ", t1)
     print("Hz", 1 / t1)
 
-    fig1, ax1 = plt.subplots(1, 2)
+    fig1, ax1 = plt.subplots(1, 2, figsize=(5, 10))
 
     # '''
     if worked:
@@ -556,6 +556,7 @@ def main():
     print("Num of nodes expanded", np.sum(node_plot))
     plt.show()
 
+    fig = plt.figure(figsize=(5, 10))
     plt.imshow(costmap_obj.cost_map)
     plt.show()
     # FIXME: skipping pymunk stuff for now

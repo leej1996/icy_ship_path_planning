@@ -22,7 +22,8 @@ class CostMap:
             y = random.randint(start_pos[1] + lower_offset + max_r, goal_pos[1] - upper_offset - max_r)
             r = random.randint(min_r, max_r)
 
-            # check if obstacles overlap, for this step we approximate the obstacles as circles
+            # check if obstacles overlap
+            # NOTE: for this step we approximate the obstacles as circles
             for obs in self.obstacles:
                 if ((x - obs['centre'][0]) ** 2 + (y - obs['centre'][1]) ** 2) ** 0.5 < obs['radius'] + r:
                     near_obs = True
@@ -146,7 +147,7 @@ class CostMap:
         # n x 2 array where each element is a vertex (x, y)
         return points
 
-    def populate_costmap(self, centre_coords, polygon, exp_factor=1.3) -> bool:
+    def populate_costmap(self, centre_coords, polygon, exp_factor=1.4) -> bool:
         row_coords = polygon[:, 1]
         col_coords = polygon[:, 0]
 
@@ -192,7 +193,7 @@ class CostMap:
         for cell in cells_computed:
             self.cost_map[cell] = min(cells_computed[cell])
 
-        # fill cells that are missing costs, find cost of 8 nearest neighbours and set cost to min
+        # fill cells that are missing costs, find cost of 8 nearest neighbours and set cost to the mean
         for (row, col) in zip(rr, cc):
             if (row, col) not in cells_computed:
                 nearest_nbrs = [
