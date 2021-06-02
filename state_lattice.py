@@ -9,9 +9,11 @@ from matplotlib import animation
 from matplotlib import patches
 from matplotlib import pyplot as plt
 from pymunk.vec2d import Vec2d
+from skimage import draw
 
 from cost_map import CostMap
 from primitives import Primitives
+
 
 
 class CustomPriorityQueue(PriorityQueue):
@@ -29,34 +31,36 @@ class CustomPriorityQueue(PriorityQueue):
         self._put((item[0], update_value))
 
 
-def generate_swath(edge_set, turning_radius, heading):
+def generate_swath(vertices, edge_set, turning_radius, heading):
     '''
     Will have key of (edge, start heading)
     '''
-    swath_set = dict()
-    start_pos = (150, 150, heading)
+    swath_set = {}
+    start_pos = (155, 155, heading)
 
     for e in edge_set:
         e = tuple(e)
-        array = np.zeros((301, 301), dtype=bool)
-        swath = [[start_pos[0], start_pos[1]]]
+        array = np.zeros((311, 311), dtype=bool)  # (max size (150) + max length of boat rounded up (5)) * 2 + 1
         translated_e = np.asarray(e) + np.array([start_pos[0], start_pos[1], 0])
         dubins_path = dubins.shortest_path((start_pos[0], start_pos[1], math.radians((start_pos[2] + 2) * 45)),
                                            (translated_e[0], translated_e[1], math.radians((translated_e[2] + 2) * 45) % (2 * math.pi)),
                                            turning_radius)
-        configurations, _ = dubins_path.sample_many(0.01)
-        x = []
-        y = []
+
+        configurations, _ = dubins_path.sample_many(0.5)
+
         for config in configurations:
-            x.append(config[0])
-            y.append(config[1])
             x_cell = int(round(config[0]))
             y_cell = int(round(config[1]))
-            if [x_cell, y_cell] not in swath:
-                swath.append([x_cell, y_cell])
+            theta = config[2] - math.pi/2
+            R = np.asarray([
+                [np.cos(theta), -np.sin(theta)],
+                [np.sin(theta), np.cos(theta)]
+            ])
+            rot_vi = np.round(np.array([[x_cell], [y_cell]]) + R @ vertices.T).astype(int)
 
-        for pair in swath:
-            array[pair[1], pair[0]] = True
+            rr, cc = draw.polygon(rot_vi[1, :], rot_vi[0, :])
+            array[rr, cc] = True
+
         swath_set[e, 0 + heading] = array
         swath_set[e, 2 + heading] = np.flip(array.T, 1)  # Rotate 90 degrees CCW
         swath_set[e, 4 + heading] = np.flip(np.flip(array, 1), 0)  # Rotate 180 degrees CCW
@@ -74,10 +78,10 @@ def get_swath(e, n, b, start_pos, swath_set):
     # in the costmap, need to remove the extra columns/rows of the swath mask
 
     swath_size = swath1.shape[0]
-    min_y = start_pos[1] - 150
-    max_y = start_pos[1] + 151
-    min_x = start_pos[0] - 150
-    max_x = start_pos[0] + 151
+    min_y = start_pos[1] - 155
+    max_y = start_pos[1] + 156
+    min_x = start_pos[0] - 155
+    max_x = start_pos[0] + 156
     # Too far to the right
     if max_x >= b:
         overhang = max_x - (b - 1)
@@ -307,7 +311,7 @@ def a_star(start, goal, turning_radius, n, m, cost_map, card_edge_set, ord_edge_
         node = f_score_open_sorted.get()[0]
 
         # print("Generation: ", generation, sep=" ")
-        # print("NODE:", node, sep=" ")
+        #print("NODE:", node, sep=" ")
 
         # If ship past all obstacles, calc direct dubins path to goal
 
@@ -374,9 +378,9 @@ def a_star(start, goal, turning_radius, n, m, cost_map, card_edge_set, ord_edge_
             swath_set = ordinal_swath
 
         for e in edge_set:
-            # print("edge:", e, sep=" ")
+            #print("edge:", e, sep=" ")
             neighbour = Concat(node, e)
-            # print("neighbour:",neighbour, sep=" ")
+            #print("neighbour:",neighbour, sep=" ")
 
             if 0 <= neighbour[0] < m and 0 <= neighbour[1] < n:
                 # print("neighbour is valid")
@@ -485,12 +489,20 @@ def main():
     costmap_obj.generate_obstacles(start_pos, goal_pos, num_obs=160, min_r=1, max_r=10, upper_offset=70, lower_offset=20)
     print(costmap_obj.obstacles)
 
+    # ship vertices
+    v = np.array([[-1, 4],
+                  [1, 4],
+                  [1, -4],
+                  [-1, -4]])
+    #vx = np.array([-1, 1, 1, -1])
+    #vy = np.array([4, 4, -4, -4])
+
     # y is pointing up, x is pointing to the right
     # must rotate all swaths pi/4 CCW to be facing up
     prim = Primitives(scale=30, rotate=True)
 
-    ordinal_swaths = generate_swath(prim.edge_set_ordinal, turning_radius, 1)
-    cardinal_swaths = generate_swath(prim.edge_set_cardinal, turning_radius, 0)
+    ordinal_swaths = generate_swath(v, prim.edge_set_ordinal, turning_radius, 1)
+    cardinal_swaths = generate_swath(v, prim.edge_set_cardinal, turning_radius, 0)
 
     #turn_radius = calc_turn_radius(15, 4)
     #print("turn radius", turn_radius)
