@@ -163,11 +163,11 @@ def heuristic(p_initial, p_final, turning_radius):
     return path.path_length()
 
 
-def near_obstacle(node, list_of_obstacles):
+def near_obstacle(node, map_dim, list_of_obstacles, threshold=10):
     for obs in list_of_obstacles:
-        # check if ship is within radius + 5 squares of the center of obstacle, then do swath
-        if dist(node, obs['centre']) < obs['radius'] + 5 and not past_obstacle(node,
-                                                                               obs):  # TODO: this should be updated for polygon obstacles
+        # check if ship is within radius + threshold squares of the center of obstacle, then do swath
+        if dist(node, obs['centre']) < obs['radius'] + threshold or \
+                node[0] < threshold or node[0] > map_dim[0] - threshold:
             return True
     return False
 
@@ -238,7 +238,7 @@ def path_smoothing(path, path_length, cost_map, turning_radius, start, goal, nod
     smooth_cost = {}
     for i, vi in enumerate(path):
         smooth_cost[vi] = math.inf
-        prev[vi] = path[i-1] if i > 0 else None
+        prev[vi] = path[i - 1] if i > 0 else None
     smooth_cost[path[0]] = 0
 
     for i, vi in enumerate(path):
@@ -295,7 +295,8 @@ def path_smoothing(path, path_length, cost_map, turning_radius, start, goal, nod
     smooth_path = [goal]
     node = goal
     while node != start:
-        node = prev[node]
+        prior_node, node = node, prev[node]
+        assert prior_node[1] >= node[1], "sequential nodes should always move forward in the y direction"
         smooth_path.append(node)
 
     return smooth_path, x, y, added_x, added_y
@@ -330,6 +331,10 @@ def a_star(start, goal, turning_radius, n, m, cost_map, card_edge_set, ord_edge_
     # priority queue of all visited node f scores
     f_score_open_sorted = CustomPriorityQueue()
     f_score_open_sorted.put((start, f_score[start]))  # put item in priority queue
+
+    # approx ship length from ship vertices by finding the largest euclid distance between each set of vertices
+    ship_length = max([dist(a, b) for a in ship_vertices for b in ship_vertices])
+    assert ship_length != 0, 'ship length cannot be 0'
 
     # while np.shape(openSet)[0] != 0:
     while len(openSet) != 0:
@@ -416,7 +421,7 @@ def a_star(start, goal, turning_radius, n, m, cost_map, card_edge_set, ord_edge_
                     continue
 
                 # If near obstacle, check cost map to find cost of swath
-                if near_obstacle(node, list_of_obstacles):
+                if near_obstacle(node, (m, n), list_of_obstacles, threshold=ship_length * 3):
                     swath = get_swath(e, n, m, node, swath_set)
                     mask = cost_map[swath]
                     swath_cost = np.sum(mask)
