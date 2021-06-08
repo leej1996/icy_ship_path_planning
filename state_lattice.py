@@ -486,8 +486,8 @@ def main():
     costmap_obj = CostMap(n, m, obstacle_penalty)
 
     # generate random obstacles
-    costmap_obj.generate_obstacles(start_pos, goal_pos, num_obs=160, min_r=1, max_r=10, upper_offset=70, lower_offset=20)
-    print(costmap_obj.obstacles)
+    costmap_obj.generate_obstacles(start_pos, goal_pos, num_obs=160, min_r=1, max_r=10,
+                                   upper_offset=70, lower_offset=20, allow_overlap=False)
 
     # ship vertices
     v = np.array([[-1, 4],
@@ -548,7 +548,7 @@ def main():
         path = np.delete(path, 0, 1)
         print(np.shape(path))
 
-        for obs in costmap_obj.obstacles:
+        for obs in costmap_obj.grouped_obstacles:
             ax1[0].add_patch(patches.Polygon(obs['vertices'], True, fill=False))
         ax1[0].plot(x1, y1, 'bx')
         ax1[0].plot(x2, y2, 'gx')
