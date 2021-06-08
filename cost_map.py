@@ -75,7 +75,10 @@ class CostMap:
             if iteration_cap > 300:
                 break
 
-        self.group_polygons()
+        if allow_overlap:
+            self.group_polygons()
+        else:
+            self.grouped_obstacles = self.obstacles
 
         return self.obstacles
 
