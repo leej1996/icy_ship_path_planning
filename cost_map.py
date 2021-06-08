@@ -1,6 +1,8 @@
 import math
 import random
+from typing import List
 
+import cv2
 import numpy as np
 from skimage import draw
 from matplotlib import patches
@@ -9,11 +11,22 @@ import matplotlib.pyplot as plt
 
 class CostMap:
     def __init__(self, n, m, obstacle_penalty):
+        self.n = n
+        self.m = m
         self.cost_map = np.zeros((n, m))
         self.obstacles = []
+        self.grouped_obstacles = []
         self.obstacle_penalty = obstacle_penalty
 
-    def generate_obstacles(self, start_pos, goal_pos, num_obs, min_r, max_r, upper_offset, lower_offset, debug=False):
+        # apply a cost to the boundaries of the channel
+        self.boundary_cost()
+
+    def boundary_cost(self, exp_factor=2.0, cutoff_factor=0.25) -> None:
+        for col in range(self.m):
+            self.cost_map[:, col] = max(0, (np.abs(col - self.m//2) - cutoff_factor * self.m)) ** exp_factor
+
+    def generate_obstacles(self, start_pos, goal_pos, num_obs, min_r, max_r,
+                           upper_offset, lower_offset, allow_overlap=True, debug=False) -> List[dict]:
         channel_width = self.cost_map.shape[1]
         iteration_cap = 0
         while len(self.obstacles) < num_obs:
@@ -22,19 +35,20 @@ class CostMap:
             y = random.randint(start_pos[1] + lower_offset + max_r, goal_pos[1] - upper_offset - max_r)
             r = random.randint(min_r, max_r)
 
-            # check if obstacles overlap
-            # NOTE: for this step we approximate the obstacles as circles
-            for obs in self.obstacles:
-                if ((x - obs['centre'][0]) ** 2 + (y - obs['centre'][1]) ** 2) ** 0.5 < obs['radius'] + r:
-                    near_obs = True
-                    break
+            if not allow_overlap:
+                # check if obstacles overlap
+                # NOTE: for this step we approximate the obstacles as circles
+                for obs in self.obstacles:
+                    if ((x - obs['centre'][0]) ** 2 + (y - obs['centre'][1]) ** 2) ** 0.5 < obs['radius'] + r:
+                        near_obs = True
+                        break
 
             if not near_obs:
                 # generate polygon
                 polygon = self.generate_polygon(diameter=r*2, origin=(x, y))
 
                 # compute the cost and update the costmap
-                if self.populate_costmap(centre_coords=(x, y), polygon=polygon):
+                if self.populate_costmap(centre_coords=(x, y), radius=r, polygon=polygon):
                     # add the polygon to obstacles list if it is feasible
                     self.obstacles.append({
                         'vertices': polygon,
@@ -60,6 +74,8 @@ class CostMap:
             iteration_cap += 1
             if iteration_cap > 300:
                 break
+
+        self.group_polygons()
 
         return self.obstacles
 
@@ -147,7 +163,7 @@ class CostMap:
         # n x 2 array where each element is a vertex (x, y)
         return points
 
-    def populate_costmap(self, centre_coords, polygon, exp_factor=1.4) -> bool:
+    def populate_costmap(self, centre_coords, radius, polygon, exp_factor=1.4) -> bool:
         row_coords = polygon[:, 1]
         col_coords = polygon[:, 0]
 
@@ -155,61 +171,36 @@ class CostMap:
         centre_y = centre_coords[1]
 
         # get all the cells occupied by polygon
-        rr, cc = draw.polygon(row_coords, col_coords)
+        rr, cc = draw.polygon(row_coords, col_coords, shape=self.cost_map.shape)
 
         # if polygon shape is infeasible then ignore it
         if len(rr) == 0 or len(cc) == 0:
             return False
 
-        # get all the cells occupied by polygon perimeter
-        rr_perim, cc_perim = draw.polygon_perimeter(row_coords, col_coords)
-
-        # set the cost for the cells along the perimeter
-        self.cost_map[rr_perim, cc_perim] = self.obstacle_penalty
-
-        # keep track of the cells which have their costs already computed
-        cells_computed = {(row, col): [self.obstacle_penalty] for row, col in zip(rr_perim, cc_perim)}
-
-        # for each edge in the polygon perimeter find the line that goes from the edge cell to the centre
-        # and compute the costs of the cells along that line
-        for (row_perim, col_perim) in zip(rr_perim, cc_perim):
-            rr_line, cc_line = draw.line(row_perim, col_perim, centre_y, centre_x)
-            dist_poly_edge_to_centre = np.sqrt((row_perim - centre_y) ** 2 + (col_perim - centre_x) ** 2)
-
-            for (row, col) in zip(rr_line, cc_line):
-                # skip the cell part of the polygon perimeter
-                if (row, col) == (row_perim, col_perim):
-                    continue
-
-                if (row, col) not in cells_computed:
-                    cells_computed[(row, col)] = []  # initialize new key-val pair to store cost
-
-                # compute dist for current cell to centre
-                dist_cell_to_centre = np.sqrt((centre_x - col) ** 2 + (centre_y - row) ** 2)
-                cost = ((dist_poly_edge_to_centre - dist_cell_to_centre) ** exp_factor + 1) * self.obstacle_penalty
-                cells_computed[(row, col)].append(cost)
-
-        # update costmap
-        for cell in cells_computed:
-            self.cost_map[cell] = min(cells_computed[cell])
-
-        # fill cells that are missing costs, find cost of 8 nearest neighbours and set cost to the mean
         for (row, col) in zip(rr, cc):
-            if (row, col) not in cells_computed:
-                nearest_nbrs = [
-                    (row + i, col + j)
-                    for i in [-1, 0, 1]
-                    for j in [-1, 0, 1]
-                    if i != 0 or j != 0
-                ]
+            dist = np.sqrt((row - centre_y) ** 2 + (col - centre_x) ** 2)
+            new_cost = ((2 * radius - dist) ** exp_factor + 1) * self.obstacle_penalty
+            old_cost = self.cost_map[row, col]
+            self.cost_map[row, col] = max(new_cost, old_cost)
 
-                # get the cost of the neighbours, excluding cost of 0
-                cost_nbrs = [self.cost_map[cell] for cell in nearest_nbrs if self.cost_map[cell] != 0]
-                # set the cost for missing as the mean of neighbours
-                self.cost_map[row, col] = np.mean(cost_nbrs)
-
-        # TODO: do some smoothing
         return True
+
+    def group_polygons(self):
+        dummy_costmap = np.zeros((self.n, self.m), dtype=np.uint8)
+
+        for obs in self.obstacles:
+            row_coords = obs["vertices"][:, 1]
+            col_coords = obs["vertices"][:, 0]
+
+            rr, cc = draw.polygon(row_coords, col_coords, shape=self.cost_map.shape)
+            dummy_costmap[rr, cc] = 1
+
+        contours, hierarchy = cv2.findContours(dummy_costmap, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
+
+        for cont in contours:
+            self.grouped_obstacles.append({
+                "vertices": cont[:, 0]
+            })
 
 
 def main():
