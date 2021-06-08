@@ -178,24 +178,24 @@ def past_obstacle(node, obs):
     return node[1] > obs['centre'][1] + obs['radius']
 
 
-def path_smoothing(path, path_length, cost_map, turning_radius, start, goal, nodes, n, m, vertices):
+def path_smoothing(path, path_length, cost_map, turning_radius, start, goal, nodes, n, m, vertices, dist_cuttoff=100):
     print("Attempt Smoothing")
     total_length = np.sum(path_length)
     # probability is based on length between nodes (greater length = greater probability)
     probabilities = np.asarray(path_length) / total_length
-    x = list()
-    y = list()
+    x = []
+    y = []
 
     for vi in path:
         x.append(vi[0])
         y.append(vi[1])
 
-    # determine between which current nodes on path nodes will be added based off previous probabilites
+    # determine between which current nodes on path nodes will be added based off previous probabilities
     # generates a list where each value is an index corresponding to a segment between two nodes on the path
     segments = np.sort(np.random.choice(np.arange(len(path)), nodes, p=probabilities))
 
-    added_x = list()
-    added_y = list()
+    added_x = []
+    added_y = []
     counter = 0
     offset = 0
 
@@ -230,25 +230,28 @@ def path_smoothing(path, path_length, cost_map, turning_radius, start, goal, nod
 
                 path.insert(node_id - 1 + inc + counter, (v[0], v[1], heading / (math.pi / 4)))
                 inc += 1
-        counter = counter + num_values
+        counter += num_values
         offset = offset + inc - 1
 
     # initialize smoothing algorithm
-    prev = dict()
-    smooth_cost = dict()
-    for vi in path:
+    prev = {}
+    smooth_cost = {}
+    for i, vi in enumerate(path):
         smooth_cost[vi] = math.inf
-        prev[vi] = None
+        prev[vi] = path[i-1] if i > 0 else None
     smooth_cost[path[0]] = 0
 
-    i = 0
-    for vi in path:
-        for vj in path[i + 1:]:
+    for i, vi in enumerate(path):
+        for _, vj in enumerate(path[i + 1:]):
             # determine cost between node vi and vj
             invalid = False
             dubins_path = dubins.shortest_path((vi[0], vi[1], math.radians((vi[2] + 2) * 45) % (2 * math.pi)),
                                                (vj[0], vj[1], math.radians((vj[2] + 2) * 45) % (2 * math.pi)),
                                                turning_radius)
+
+            if dubins_path.path_length() > dist_cuttoff:
+                break
+
             configurations, _ = dubins_path.sample_many(1.2)
             swath = np.zeros_like(cost_map, dtype=bool)
 
@@ -288,16 +291,13 @@ def path_smoothing(path, path_length, cost_map, turning_radius, start, goal, nod
                 smooth_cost[vj] = smooth_cost[vi] + adj_cost
                 prev[vj] = vi
 
-        i += 1
-
     # reconstruct path
-    smooth_path = list()
-    smooth_path.append(goal)
+    smooth_path = [goal]
     node = goal
     while node != start:
         node = prev[node]
         smooth_path.append(node)
-    
+
     return smooth_path, x, y, added_x, added_y
 
 
@@ -388,7 +388,7 @@ def a_star(start, goal, turning_radius, n, m, cost_map, card_edge_set, ord_edge_
 
             t0 = time.clock()
             smooth_path, x1, y1, x2, y2 = path_smoothing(path, new_path_length, cost_map, turning_radius, start, goal,
-                                                         add_nodes, n, m, ship_vertices)
+                                                         add_nodes, n, m, ship_vertices, dist_cuttoff=100)
             t1 = time.clock() - t0
             print("smooth time", t1)
             return (True, f_score[goal], smooth_path, closedSet, x1, y1, x2, y2)
