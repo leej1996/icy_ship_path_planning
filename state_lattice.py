@@ -178,7 +178,39 @@ def past_obstacle(node, obs):
     return node[1] > obs['centre'][1] + obs['radius']
 
 
-def path_smoothing(path, path_length, cost_map, turning_radius, start, goal, nodes, n, m, vertices, dist_cuttoff=100):
+def plot_path(path, cost_map, turn_radius):
+    x = []
+    y = []
+
+    for vi in path:
+        x.append(vi[0])
+        y.append(vi[1])
+    xmax = 0
+    ymax = 0
+    plt.imshow(cost_map, origin='lower')
+    for i in range(np.shape(path)[0] - 1):
+            P1 = path[i]
+            P2 = path[i + 1]
+            dubins_path = dubins.shortest_path((P1[0], P1[1], math.radians(P1[2] * 45 + 90) % (2 * math.pi)),
+                                               (P2[0], P2[1], math.radians(P2[2] * 45 + 90) % (2 * math.pi)),
+                                               turn_radius)
+            configurations, _ = dubins_path.sample_many(0.2)
+            x1 = list()
+            y1 = list()
+            for config in configurations:
+                x1.append(config[0])
+                y1.append(config[1])
+                if config[0] > xmax:
+                    xmax = config[0]
+                if config[1] > ymax:
+                    ymax = config[1]
+            plt.plot(x1, y1, 'g')
+
+    plt.plot(x, y, 'bx')
+    plt.show()
+
+
+def path_smoothing(path, path_length, cost_map, turning_radius, plot_turning_radius, start, goal, nodes, n, m, vertices, dist_cuttoff=100):
     print("Attempt Smoothing")
     total_length = np.sum(path_length)
     # probability is based on length between nodes (greater length = greater probability)
@@ -247,7 +279,7 @@ def path_smoothing(path, path_length, cost_map, turning_radius, start, goal, nod
             invalid = False
             dubins_path = dubins.shortest_path((vi[0], vi[1], math.radians((vi[2] + 2) * 45) % (2 * math.pi)),
                                                (vj[0], vj[1], math.radians((vj[2] + 2) * 45) % (2 * math.pi)),
-                                               turning_radius)
+                                               plot_turning_radius)
 
             if dubins_path.path_length() > dist_cuttoff:
                 break
@@ -302,12 +334,12 @@ def path_smoothing(path, path_length, cost_map, turning_radius, start, goal, nod
     return smooth_path, x, y, added_x, added_y
 
 
-def a_star(start, goal, turning_radius, n, m, cost_map, card_edge_set, ord_edge_set, cardinal_swath, ordinal_swath,
+def a_star(start, goal, turning_radius, plot_turning_radius, n, m, cost_map, card_edge_set, ord_edge_set, cardinal_swath, ordinal_swath,
            list_of_obstacles, ship_vertices):
     # theta is measured ccw from y axis
-    a = 0.2
-    b = 0.8
-    free_path_interval = 2
+    a = 0.5
+    b = 0.5
+    free_path_interval = 1
     generation = 0  # number of nodes expanded
     openSet = dict()  # set of nodes considered for expansion
     print("start", start)
@@ -392,8 +424,8 @@ def a_star(start, goal, turning_radius, n, m, cost_map, card_edge_set, ord_edge_
             add_nodes = int(len(path))  # number of nodes to add in the path smoothing algorithm
 
             t0 = time.clock()
-            smooth_path, x1, y1, x2, y2 = path_smoothing(path, new_path_length, cost_map, turning_radius, start, goal,
-                                                         add_nodes, n, m, ship_vertices, dist_cuttoff=100)
+            smooth_path, x1, y1, x2, y2 = path_smoothing(path, new_path_length, cost_map, turning_radius, plot_turning_radius,
+                                                         start, goal, add_nodes, n, m, ship_vertices, dist_cuttoff=100)
             t1 = time.clock() - t0
             print("smooth time", t1)
             return (True, f_score[goal], smooth_path, closedSet, x1, y1, x2, y2)
@@ -505,20 +537,21 @@ def calc_turn_radius(rate, speed):
 
 def main():
     # Resolution is 10 m
-    n = 400
-    m = 50
+    n = 600
+    m = 70
     theta = 0  # Possible values: 0 - 7, each number should be multiplied by 45 degrees (measured CCW from up)
-    turning_radius = 29.9999  # 300 m turn radius
+    turning_radius = 30  # 300 m turn radius
+    plot_turning_radius = 29.9999
     obstacle_penalty = 3
-    start_pos = (40, 10, theta)
-    goal_pos = (20, 390, 0)
+    start_pos = (35, 10, theta)
+    goal_pos = (35, 590, 0)
 
     # initialize costmap
     costmap_obj = CostMap(n, m, obstacle_penalty)
 
     # generate random obstacles
     costmap_obj.generate_obstacles(start_pos, goal_pos, num_obs=160, min_r=1, max_r=10,
-                                   upper_offset=70, lower_offset=20, allow_overlap=False)
+                                   upper_offset=200, lower_offset=20, allow_overlap=False)
 
     # ship vertices
     v = np.array([[-1, 4],
@@ -534,11 +567,11 @@ def main():
     cardinal_swaths = generate_swath(v, prim.edge_set_cardinal, turning_radius, 0)
 
     t0 = time.clock()
-    worked, L, edge_path, nodes_visited, x1, y1, x2, y2 = a_star(start_pos, goal_pos, turning_radius, n, m,
-                                                                 costmap_obj.cost_map,
+    worked, L, edge_path, nodes_visited, x1, y1, x2, y2 = a_star(start_pos, goal_pos, turning_radius, plot_turning_radius,
+                                                                 n, m, costmap_obj.cost_map,
                                                                  prim.edge_set_cardinal, prim.edge_set_ordinal,
-                                                                 cardinal_swaths,
-                                                                 ordinal_swaths, costmap_obj.obstacles, v)
+                                                                 cardinal_swaths, ordinal_swaths,
+                                                                 costmap_obj.obstacles, v)
 
     t1 = time.clock() - t0
     print("Time elapsed: ", t1)
@@ -559,7 +592,7 @@ def main():
             P2 = PATH[i + 1]
             dubins_path = dubins.shortest_path((P1[0], P1[1], math.radians(P1[2] * 45 + 90) % (2 * math.pi)),
                                                (P2[0], P2[1], math.radians(P2[2] * 45 + 90) % (2 * math.pi)),
-                                               turning_radius)
+                                               plot_turning_radius)
             configurations, _ = dubins_path.sample_many(0.2)
             # 0.01
             x = list()
