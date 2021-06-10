@@ -163,11 +163,11 @@ def heuristic(p_initial, p_final, turning_radius):
     return path.path_length()
 
 
-def near_obstacle(node, list_of_obstacles):
+def near_obstacle(node, map_dim, list_of_obstacles, threshold=10):
     for obs in list_of_obstacles:
-        # check if ship is within radius + 5 squares of the center of obstacle, then do swath
-        if dist(node, obs['centre']) < obs['radius'] + 5 and not past_obstacle(node,
-                                                                               obs):  # TODO: this should be updated for polygon obstacles
+        # check if ship is within radius + threshold squares of the center of obstacle, then do swath
+        if dist(node, obs['centre']) < obs['radius'] + threshold or \
+                node[0] < threshold or node[0] > map_dim[0] - threshold:
             return True
     return False
 
@@ -178,24 +178,57 @@ def past_obstacle(node, obs):
     return node[1] > obs['centre'][1] + obs['radius']
 
 
-def path_smoothing(path, path_length, cost_map, turning_radius, start, goal, nodes, n, m, vertices):
+def plot_path(path, cost_map, turn_radius):
+    x = []
+    y = []
+
+    for vi in path:
+        x.append(vi[0])
+        y.append(vi[1])
+    xmax = 0
+    ymax = 0
+    plt.imshow(cost_map, origin='lower')
+    for i in range(np.shape(path)[0] - 1):
+            P1 = path[i]
+            P2 = path[i + 1]
+            dubins_path = dubins.shortest_path((P1[0], P1[1], math.radians(P1[2] * 45 + 90) % (2 * math.pi)),
+                                               (P2[0], P2[1], math.radians(P2[2] * 45 + 90) % (2 * math.pi)),
+                                               turn_radius)
+            configurations, _ = dubins_path.sample_many(0.2)
+            x1 = list()
+            y1 = list()
+            for config in configurations:
+                x1.append(config[0])
+                y1.append(config[1])
+                if config[0] > xmax:
+                    xmax = config[0]
+                if config[1] > ymax:
+                    ymax = config[1]
+            plt.plot(x1, y1, 'g')
+
+    plt.plot(x, y, 'bx')
+    plt.show()
+
+
+def path_smoothing(path, path_length, cost_map, turning_radius,
+                   start, goal, nodes, n, m, vertices, dist_cuttoff=100, eps=1e-4):  # epsilon handles small error from dubins package
     print("Attempt Smoothing")
     total_length = np.sum(path_length)
     # probability is based on length between nodes (greater length = greater probability)
     probabilities = np.asarray(path_length) / total_length
-    x = list()
-    y = list()
+    x = []
+    y = []
 
     for vi in path:
         x.append(vi[0])
         y.append(vi[1])
 
-    # determine between which current nodes on path nodes will be added based off previous probabilites
+    # determine between which current nodes on path nodes will be added based off previous probabilities
     # generates a list where each value is an index corresponding to a segment between two nodes on the path
     segments = np.sort(np.random.choice(np.arange(len(path)), nodes, p=probabilities))
 
-    added_x = list()
-    added_y = list()
+    added_x = []
+    added_y = []
     counter = 0
     offset = 0
 
@@ -230,25 +263,28 @@ def path_smoothing(path, path_length, cost_map, turning_radius, start, goal, nod
 
                 path.insert(node_id - 1 + inc + counter, (v[0], v[1], heading / (math.pi / 4)))
                 inc += 1
-        counter = counter + num_values
+        counter += num_values
         offset = offset + inc - 1
 
     # initialize smoothing algorithm
-    prev = dict()
-    smooth_cost = dict()
-    for vi in path:
-        smooth_cost[vi] = math.inf
-        prev[vi] = None
+    prev = {}
+    smooth_cost = {}
+    for i, vi in enumerate(path):
+        smooth_cost[vi] = np.inf
+        prev[vi] = path[i - 1] if i > 0 else None
     smooth_cost[path[0]] = 0
 
-    i = 0
-    for vi in path:
-        for vj in path[i + 1:]:
+    for i, vi in enumerate(path):
+        for _, vj in enumerate(path[i + 1:]):
             # determine cost between node vi and vj
             invalid = False
             dubins_path = dubins.shortest_path((vi[0], vi[1], math.radians((vi[2] + 2) * 45) % (2 * math.pi)),
                                                (vj[0], vj[1], math.radians((vj[2] + 2) * 45) % (2 * math.pi)),
-                                               turning_radius)
+                                               turning_radius - eps)
+
+            if dubins_path.path_length() > dist_cuttoff:
+                break
+
             configurations, _ = dubins_path.sample_many(1.2)
             swath = np.zeros_like(cost_map, dtype=bool)
 
@@ -288,25 +324,23 @@ def path_smoothing(path, path_length, cost_map, turning_radius, start, goal, nod
                 smooth_cost[vj] = smooth_cost[vi] + adj_cost
                 prev[vj] = vi
 
-        i += 1
-
     # reconstruct path
-    smooth_path = list()
-    smooth_path.append(goal)
+    smooth_path = [goal]
     node = goal
     while node != start:
-        node = prev[node]
+        prior_node, node = node, prev[node]
+        assert prior_node[1] >= node[1], "sequential nodes should always move forward in the y direction"
         smooth_path.append(node)
-    
+
     return smooth_path, x, y, added_x, added_y
 
 
 def a_star(start, goal, turning_radius, n, m, cost_map, card_edge_set, ord_edge_set, cardinal_swath, ordinal_swath,
            list_of_obstacles, ship_vertices):
     # theta is measured ccw from y axis
-    a = 0.2
-    b = 0.8
-    free_path_interval = 2
+    a = 0.5
+    b = 0.5
+    free_path_interval = 1
     generation = 0  # number of nodes expanded
     openSet = dict()  # set of nodes considered for expansion
     print("start", start)
@@ -330,6 +364,10 @@ def a_star(start, goal, turning_radius, n, m, cost_map, card_edge_set, ord_edge_
     # priority queue of all visited node f scores
     f_score_open_sorted = CustomPriorityQueue()
     f_score_open_sorted.put((start, f_score[start]))  # put item in priority queue
+
+    # approx ship length from ship vertices by finding the largest euclid distance between each set of vertices
+    ship_length = max([dist(a, b) for a in ship_vertices for b in ship_vertices])
+    assert ship_length != 0, 'ship length cannot be 0'
 
     # while np.shape(openSet)[0] != 0:
     while len(openSet) != 0:
@@ -386,12 +424,15 @@ def a_star(start, goal, turning_radius, n, m, cost_map, card_edge_set, ord_edge_
             print("path", path)
             add_nodes = int(len(path))  # number of nodes to add in the path smoothing algorithm
 
+            orig_path = path.copy()
+            orig_cost = f_score[goal]
             t0 = time.clock()
-            smooth_path, x1, y1, x2, y2 = path_smoothing(path, new_path_length, cost_map, turning_radius, start, goal,
-                                                         add_nodes, n, m, ship_vertices)
+            smooth_path, x1, y1, x2, y2 = path_smoothing(path, new_path_length, cost_map, turning_radius,
+                                                         start, goal, add_nodes, n, m, ship_vertices, dist_cuttoff=100)
             t1 = time.clock() - t0
             print("smooth time", t1)
-            return (True, f_score[goal], smooth_path, closedSet, x1, y1, x2, y2)
+
+            return True, orig_cost, smooth_path, closedSet, x1, y1, x2, y2, orig_path
 
         openSet.pop(node)
         closedSet.append(node)
@@ -416,7 +457,7 @@ def a_star(start, goal, turning_radius, n, m, cost_map, card_edge_set, ord_edge_
                     continue
 
                 # If near obstacle, check cost map to find cost of swath
-                if near_obstacle(node, list_of_obstacles):
+                if near_obstacle(node, (m, n), list_of_obstacles, threshold=ship_length * 3):
                     swath = get_swath(e, n, m, node, swath_set)
                     mask = cost_map[swath]
                     swath_cost = np.sum(mask)
@@ -500,20 +541,20 @@ def calc_turn_radius(rate, speed):
 
 def main():
     # Resolution is 10 m
-    n = 400
-    m = 50
+    n = 600
+    m = 70
     theta = 0  # Possible values: 0 - 7, each number should be multiplied by 45 degrees (measured CCW from up)
-    turning_radius = 29.9999  # 300 m turn radius
+    turning_radius = 30  # 300 m turn radius
     obstacle_penalty = 3
-    start_pos = (40, 10, theta)
-    goal_pos = (20, 390, 0)
+    start_pos = (35, 10, theta)
+    goal_pos = (35, 590, 0)
 
     # initialize costmap
     costmap_obj = CostMap(n, m, obstacle_penalty)
 
     # generate random obstacles
     costmap_obj.generate_obstacles(start_pos, goal_pos, num_obs=160, min_r=1, max_r=10,
-                                   upper_offset=70, lower_offset=20, allow_overlap=False)
+                                   upper_offset=200, lower_offset=20, allow_overlap=False)
 
     # ship vertices
     v = np.array([[-1, 4],
@@ -529,15 +570,22 @@ def main():
     cardinal_swaths = generate_swath(v, prim.edge_set_cardinal, turning_radius, 0)
 
     t0 = time.clock()
-    worked, L, edge_path, nodes_visited, x1, y1, x2, y2 = a_star(start_pos, goal_pos, turning_radius, n, m,
-                                                                 costmap_obj.cost_map,
+    worked, orig_cost, smoothed_edge_path, nodes_visited, x1, y1, x2, y2, orig_path = a_star(start_pos, goal_pos, turning_radius,
+                                                                 n, m, costmap_obj.cost_map,
                                                                  prim.edge_set_cardinal, prim.edge_set_ordinal,
-                                                                 cardinal_swaths,
-                                                                 ordinal_swaths, costmap_obj.obstacles, v)
+                                                                 cardinal_swaths, ordinal_swaths,
+                                                                 costmap_obj.obstacles, v)
 
     t1 = time.clock() - t0
     print("Time elapsed: ", t1)
     print("Hz", 1 / t1)
+
+    smoothed_cost = costmap_obj.compute_path_cost(path=smoothed_edge_path.copy(), reverse_path=True,
+                                                  turning_radius=turning_radius, ship_vertices=v)
+    # this should be the same as `original_cost` !!
+    recomputed_original_cost = costmap_obj.compute_path_cost(path=orig_path, reverse_path=False,
+                                                             turning_radius=turning_radius, ship_vertices=v)
+    print("\nPath cost:\n\toriginal: {:.4f}\n\twith smoothing: {:.4f}\n".format(orig_cost, smoothed_cost))
 
     fig1, ax1 = plt.subplots(1, 2, figsize=(5, 10))
 
@@ -546,7 +594,7 @@ def main():
         ax1[0].imshow(costmap_obj.cost_map, origin='lower')
         xmax = 0
         ymax = 0
-        PATH = [i for i in edge_path[::-1]]
+        PATH = [i for i in smoothed_edge_path[::-1]]
         path = np.zeros((2, 1))
 
         for i in range(np.shape(PATH)[0] - 1):
@@ -554,7 +602,7 @@ def main():
             P2 = PATH[i + 1]
             dubins_path = dubins.shortest_path((P1[0], P1[1], math.radians(P1[2] * 45 + 90) % (2 * math.pi)),
                                                (P2[0], P2[1], math.radians(P2[2] * 45 + 90) % (2 * math.pi)),
-                                               turning_radius)
+                                               turning_radius - 1e-4)
             configurations, _ = dubins_path.sample_many(0.2)
             # 0.01
             x = list()
@@ -588,7 +636,6 @@ def main():
     ax1[1].imshow(node_plot, origin='lower')
     # '''
     # '''
-    print("Total Cost:", L, sep=" ")
     print("Num of nodes expanded", np.sum(node_plot))
     plt.show()
 

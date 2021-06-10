@@ -3,6 +3,7 @@ import random
 from typing import List
 
 import cv2
+import dubins
 import numpy as np
 from skimage import draw
 from matplotlib import patches
@@ -23,7 +24,7 @@ class CostMap:
 
     def boundary_cost(self, exp_factor=2.0, cutoff_factor=0.25) -> None:
         for col in range(self.m):
-            self.cost_map[:, col] = max(0, (np.abs(col - self.m//2) - cutoff_factor * self.m)) ** exp_factor
+            self.cost_map[:, col] = max(0, (np.abs(col - self.m // 2) - cutoff_factor * self.m)) ** exp_factor
 
     def generate_obstacles(self, start_pos, goal_pos, num_obs, min_r, max_r,
                            upper_offset, lower_offset, allow_overlap=True, debug=False) -> List[dict]:
@@ -45,7 +46,7 @@ class CostMap:
 
             if not near_obs:
                 # generate polygon
-                polygon = self.generate_polygon(diameter=r*2, origin=(x, y))
+                polygon = self.generate_polygon(diameter=r * 2, origin=(x, y))
 
                 # compute the cost and update the costmap
                 if self.populate_costmap(centre_coords=(x, y), radius=r, polygon=polygon):
@@ -188,7 +189,7 @@ class CostMap:
 
         return True
 
-    def group_polygons(self):
+    def group_polygons(self) -> None:
         dummy_costmap = np.zeros((self.n, self.m), dtype=np.uint8)
 
         for obs in self.obstacles:
@@ -205,6 +206,45 @@ class CostMap:
                 "vertices": cont[:, 0]
             })
 
+    def compute_path_cost(self, path, turning_radius, ship_vertices, reverse_path=False, eps=1-4) -> float:
+        if reverse_path:
+            path.reverse()
+
+        total_path_cost = 0
+        total_swath = np.zeros_like(self.cost_map)
+        for i, vi in enumerate(path[:-1]):
+            vj = path[i + 1]
+            # determine cost between node vi and vj
+            dubins_path = dubins.shortest_path((vi[0], vi[1], math.radians((vi[2] + 2) * 45) % (2 * math.pi)),
+                                               (vj[0], vj[1], math.radians((vj[2] + 2) * 45) % (2 * math.pi)),
+                                               turning_radius - eps)
+
+            configurations, _ = dubins_path.sample_many(1.2)
+            swath = np.zeros_like(self.cost_map, dtype=bool)
+
+            # for each point sampled on dubins path, get x, y, theta
+            for config in configurations:
+                x_cell = int(round(config[0]))
+                y_cell = int(round(config[1]))
+
+                theta = config[2] - math.pi / 2
+                R = np.asarray([
+                    [np.cos(theta), -np.sin(theta)],
+                    [np.sin(theta), np.cos(theta)]
+                ])
+
+                # rotate/translate vertices of ship from origin to sampled point with heading = theta
+                rot_vi = np.round(np.array([[x_cell], [y_cell]]) + R @ ship_vertices.T).astype(int)
+
+                # draw rotated ship polygon and put occupied cells into a mask
+                rr, cc = draw.polygon(rot_vi[1, :], rot_vi[0, :], shape=self.cost_map.shape)
+                swath[rr, cc] = True
+                total_swath[rr, cc] = 1
+
+            # update cost and total swath
+            total_path_cost += float(np.sum(self.cost_map[swath]) + dubins_path.path_length())
+
+        return total_path_cost
 
 def main():
     # initialize costmap
