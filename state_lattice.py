@@ -210,7 +210,8 @@ def plot_path(path, cost_map, turn_radius):
     plt.show()
 
 
-def path_smoothing(path, path_length, cost_map, turning_radius, plot_turning_radius, start, goal, nodes, n, m, vertices, dist_cuttoff=100):
+def path_smoothing(path, path_length, cost_map, turning_radius,
+                   start, goal, nodes, n, m, vertices, dist_cuttoff=100, eps=1e-4):  # epsilon handles small error from dubins package
     print("Attempt Smoothing")
     total_length = np.sum(path_length)
     # probability is based on length between nodes (greater length = greater probability)
@@ -269,7 +270,7 @@ def path_smoothing(path, path_length, cost_map, turning_radius, plot_turning_rad
     prev = {}
     smooth_cost = {}
     for i, vi in enumerate(path):
-        smooth_cost[vi] = math.inf
+        smooth_cost[vi] = np.inf
         prev[vi] = path[i - 1] if i > 0 else None
     smooth_cost[path[0]] = 0
 
@@ -279,7 +280,7 @@ def path_smoothing(path, path_length, cost_map, turning_radius, plot_turning_rad
             invalid = False
             dubins_path = dubins.shortest_path((vi[0], vi[1], math.radians((vi[2] + 2) * 45) % (2 * math.pi)),
                                                (vj[0], vj[1], math.radians((vj[2] + 2) * 45) % (2 * math.pi)),
-                                               plot_turning_radius)
+                                               turning_radius - eps)
 
             if dubins_path.path_length() > dist_cuttoff:
                 break
@@ -334,7 +335,7 @@ def path_smoothing(path, path_length, cost_map, turning_radius, plot_turning_rad
     return smooth_path, x, y, added_x, added_y
 
 
-def a_star(start, goal, turning_radius, plot_turning_radius, n, m, cost_map, card_edge_set, ord_edge_set, cardinal_swath, ordinal_swath,
+def a_star(start, goal, turning_radius, n, m, cost_map, card_edge_set, ord_edge_set, cardinal_swath, ordinal_swath,
            list_of_obstacles, ship_vertices):
     # theta is measured ccw from y axis
     a = 0.5
@@ -423,12 +424,15 @@ def a_star(start, goal, turning_radius, plot_turning_radius, n, m, cost_map, car
             print("path", path)
             add_nodes = int(len(path))  # number of nodes to add in the path smoothing algorithm
 
+            orig_path = path.copy()
+            orig_cost = f_score[goal]
             t0 = time.clock()
-            smooth_path, x1, y1, x2, y2 = path_smoothing(path, new_path_length, cost_map, turning_radius, plot_turning_radius,
+            smooth_path, x1, y1, x2, y2 = path_smoothing(path, new_path_length, cost_map, turning_radius,
                                                          start, goal, add_nodes, n, m, ship_vertices, dist_cuttoff=100)
             t1 = time.clock() - t0
             print("smooth time", t1)
-            return (True, f_score[goal], smooth_path, closedSet, x1, y1, x2, y2)
+
+            return True, orig_cost, smooth_path, closedSet, x1, y1, x2, y2, orig_path
 
         openSet.pop(node)
         closedSet.append(node)
@@ -541,7 +545,6 @@ def main():
     m = 70
     theta = 0  # Possible values: 0 - 7, each number should be multiplied by 45 degrees (measured CCW from up)
     turning_radius = 30  # 300 m turn radius
-    plot_turning_radius = 29.9999
     obstacle_penalty = 3
     start_pos = (35, 10, theta)
     goal_pos = (35, 590, 0)
@@ -567,7 +570,7 @@ def main():
     cardinal_swaths = generate_swath(v, prim.edge_set_cardinal, turning_radius, 0)
 
     t0 = time.clock()
-    worked, L, edge_path, nodes_visited, x1, y1, x2, y2 = a_star(start_pos, goal_pos, turning_radius, plot_turning_radius,
+    worked, orig_cost, smoothed_edge_path, nodes_visited, x1, y1, x2, y2, orig_path = a_star(start_pos, goal_pos, turning_radius,
                                                                  n, m, costmap_obj.cost_map,
                                                                  prim.edge_set_cardinal, prim.edge_set_ordinal,
                                                                  cardinal_swaths, ordinal_swaths,
@@ -577,6 +580,13 @@ def main():
     print("Time elapsed: ", t1)
     print("Hz", 1 / t1)
 
+    smoothed_cost = costmap_obj.compute_path_cost(path=smoothed_edge_path.copy(), reverse_path=True,
+                                                  turning_radius=turning_radius, ship_vertices=v)
+    # this should be the same as `original_cost` !!
+    recomputed_original_cost = costmap_obj.compute_path_cost(path=orig_path, reverse_path=False,
+                                                             turning_radius=turning_radius, ship_vertices=v)
+    print("\nPath cost:\n\toriginal: {:.4f}\n\twith smoothing: {:.4f}\n".format(orig_cost, smoothed_cost))
+
     fig1, ax1 = plt.subplots(1, 2, figsize=(5, 10))
 
     # '''
@@ -584,7 +594,7 @@ def main():
         ax1[0].imshow(costmap_obj.cost_map, origin='lower')
         xmax = 0
         ymax = 0
-        PATH = [i for i in edge_path[::-1]]
+        PATH = [i for i in smoothed_edge_path[::-1]]
         path = np.zeros((2, 1))
 
         for i in range(np.shape(PATH)[0] - 1):
@@ -592,7 +602,7 @@ def main():
             P2 = PATH[i + 1]
             dubins_path = dubins.shortest_path((P1[0], P1[1], math.radians(P1[2] * 45 + 90) % (2 * math.pi)),
                                                (P2[0], P2[1], math.radians(P2[2] * 45 + 90) % (2 * math.pi)),
-                                               plot_turning_radius)
+                                               turning_radius - 1e-4)
             configurations, _ = dubins_path.sample_many(0.2)
             # 0.01
             x = list()
@@ -626,7 +636,6 @@ def main():
     ax1[1].imshow(node_plot, origin='lower')
     # '''
     # '''
-    print("Total Cost:", L, sep=" ")
     print("Num of nodes expanded", np.sum(node_plot))
     plt.show()
 
