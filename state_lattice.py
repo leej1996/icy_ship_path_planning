@@ -1,6 +1,5 @@
 import math
 import time
-from queue import PriorityQueue
 
 import dubins
 import numpy as np
@@ -11,23 +10,9 @@ from matplotlib import pyplot as plt
 from pymunk.vec2d import Vec2d
 from skimage import draw
 
+from a_star_search import AStar
 from cost_map import CostMap
 from primitives import Primitives
-
-
-class CustomPriorityQueue(PriorityQueue):
-    def _put(self, item):
-        return super()._put((self._get_priority(item), item))  # prioritized based on f score
-
-    def _get(self):
-        return super()._get()[1]
-
-    def _get_priority(self, item):
-        return item[1]
-
-    def _update(self, item, update_value):
-        self.queue.remove(((item[1]), (item[0], item[1])))  # custom queue to update the priorities of objects
-        self._put((item[0], update_value))
 
 
 def generate_swath(vertices, edge_set, turning_radius, heading):
@@ -69,115 +54,6 @@ def generate_swath(vertices, edge_set, turning_radius, heading):
     return swath_set
 
 
-def get_swath(e, n, b, start_pos, swath_set):
-    swath = np.zeros((n, b), dtype=bool)
-    heading = int(start_pos[2])
-    swath1 = swath_set[tuple(e), heading]
-
-    # swath mask has starting node at the centre (11x11) and want to put at the starting node of currently expanded node
-    # in the costmap, need to remove the extra columns/rows of the swath mask
-
-    swath_size = swath1.shape[0]
-    min_y = start_pos[1] - 155
-    max_y = start_pos[1] + 156
-    min_x = start_pos[0] - 155
-    max_x = start_pos[0] + 156
-    # Too far to the right
-    if max_x >= b:
-        overhang = max_x - (b - 1)
-        swath1 = np.delete(swath1, slice(swath_size - overhang, swath_size), axis=1)
-        max_x = b - 1
-    # Too far to the left
-    if min_x < 0:
-        overhang = abs(min_x)
-        swath1 = np.delete(swath1, slice(0, overhang), axis=1)
-        min_x = 0
-    # Too close to the top
-    if max_y >= n:
-        overhang = max_y - (n - 1)
-        swath1 = np.delete(swath1, slice(swath_size - overhang, swath_size), axis=0)
-        max_y = n - 1
-    # Too close to the bottom
-    if min_y < 0:
-        overhang = abs(min_y)
-        swath1 = np.delete(swath1, slice(0, overhang), axis=0)
-        min_y = 0
-    swath[min_y:max_y, min_x:max_x] = swath1
-
-    return swath
-
-
-def Concat(x, y):
-    """
-    given two points x,y in the lattice, find the concatenation x + y
-    """
-    rot = x[2] * math.pi / 4  # starting heading
-    p1 = [x[0], x[1]]
-    p2_theta = y[2] * math.pi / 4  # edge heading
-    p2 = [y[0], y[1]]
-
-    if x[2] % 2 == 0:
-        # cardinal
-        heading = p2_theta + rot
-    else:
-        # ordinal
-        rot = rot - math.pi / 4
-        heading = p2_theta + rot
-
-    R = np.array([[math.cos(rot), -math.sin(rot)],
-                  [math.sin(rot), math.cos(rot)]])
-    multiplication = np.matmul(R, np.transpose(np.asarray(p2)))
-
-    result = np.asarray(p1) + multiplication
-
-    while heading >= 2 * math.pi:
-        heading = heading - 2 * math.pi
-    heading = heading / (math.pi / 4)
-
-    return (int(result[0]), int(result[1]), int(round(heading)))
-
-
-def is_point_in_set(point, set):
-    for point1 in set:
-        if dist(point, point1) < 0.001 and abs(point[2] - point1[2]) < 0.001:
-            return True, point1
-    return False, False
-
-
-def dist(a, b):
-    # Euclidean distance
-    x1 = a[0]
-    y1 = a[1]
-    x2 = b[0]
-    y2 = b[1]
-    return ((x1 - x2) ** 2 + (y1 - y2) ** 2) ** 0.5
-
-
-def heuristic(p_initial, p_final, turning_radius):
-    """
-    The Dubins' distance from initial to final points.
-    """
-    p1 = (p_initial[0], p_initial[1], math.radians((p_initial[2] * 45 + 90) % 360))
-    p2 = (p_final[0], p_final[1], math.radians((p_final[2] * 45 + 90) % 360))
-    path = dubins.shortest_path(p1, p2, turning_radius)
-    return path.path_length()
-
-
-def near_obstacle(node, map_dim, list_of_obstacles, threshold=10):
-    for obs in list_of_obstacles:
-        # check if ship is within radius + threshold squares of the center of obstacle, then do swath
-        if dist(node, obs['centre']) < obs['radius'] + threshold or \
-                node[0] < threshold or node[0] > map_dim[0] - threshold:
-            return True
-    return False
-
-
-def past_obstacle(node, obs):
-    # also check if ship is past all obstacles (under assumption that goal is always positive y direction from start)
-    # obstacle y coord + radius
-    return node[1] > obs['centre'][1] + obs['radius']
-
-
 def plot_path(path, cost_map, turn_radius):
     x = []
     y = []
@@ -208,299 +84,6 @@ def plot_path(path, cost_map, turn_radius):
 
     plt.plot(x, y, 'bx')
     plt.show()
-
-
-def path_smoothing(path, path_length, cost_map, turning_radius,
-                   start, goal, nodes, n, m, vertices, dist_cuttoff=100, eps=1e-4):  # epsilon handles small error from dubins package
-    print("Attempt Smoothing")
-    total_length = np.sum(path_length)
-    # probability is based on length between nodes (greater length = greater probability)
-    probabilities = np.asarray(path_length) / total_length
-    x = []
-    y = []
-
-    for vi in path:
-        x.append(vi[0])
-        y.append(vi[1])
-
-    # determine between which current nodes on path nodes will be added based off previous probabilities
-    # generates a list where each value is an index corresponding to a segment between two nodes on the path
-    segments = np.sort(np.random.choice(np.arange(len(path)), nodes, p=probabilities))
-
-    added_x = []
-    added_y = []
-    counter = 0
-    offset = 0
-
-    while counter < len(segments):
-        node_id = segments[counter]  # index where node will be added
-        num_values = np.shape(segments[segments == node_id])[0]  # number of nodes to be added
-
-        # two current path nodes where the new nodes will be added
-        node = path[node_id + offset]
-        prev_node = path[node_id + offset - 1]
-
-        # sample points between nodes
-        prim = dubins.shortest_path((prev_node[0], prev_node[1], math.radians((prev_node[2] + 2) * 45)),
-                                    (node[0], node[1], math.radians((node[2] + 2) * 45)), turning_radius)
-        configurations, _ = prim.sample_many(0.1)
-
-        # if there are multiple nodes to be added between two nodes, try to space them out equally
-        values = [configurations[int(i)] for i in
-                  np.linspace(0, len(configurations), num=num_values + 2, endpoint=False)]
-        values.pop(0)
-        values.pop()
-
-        # actually insert nodes into the path
-        inc = 1
-        for v in values:
-            heading = v[2] - math.pi / 2
-            if 0 <= v[0] < m and 0 <= v[1] < n:
-                added_x.append(v[0])
-                added_y.append(v[1])
-                if heading < 0:
-                    heading = heading + 2 * math.pi
-
-                path.insert(node_id - 1 + inc + counter, (v[0], v[1], heading / (math.pi / 4)))
-                inc += 1
-        counter += num_values
-        offset = offset + inc - 1
-
-    # initialize smoothing algorithm
-    prev = {}
-    smooth_cost = {}
-    for i, vi in enumerate(path):
-        smooth_cost[vi] = np.inf
-        prev[vi] = path[i - 1] if i > 0 else None
-    smooth_cost[path[0]] = 0
-
-    for i, vi in enumerate(path):
-        for _, vj in enumerate(path[i + 1:]):
-            # determine cost between node vi and vj
-            invalid = False
-            dubins_path = dubins.shortest_path((vi[0], vi[1], math.radians((vi[2] + 2) * 45) % (2 * math.pi)),
-                                               (vj[0], vj[1], math.radians((vj[2] + 2) * 45) % (2 * math.pi)),
-                                               turning_radius - eps)
-
-            if dubins_path.path_length() > dist_cuttoff:
-                break
-
-            configurations, _ = dubins_path.sample_many(1.2)
-            swath = np.zeros_like(cost_map, dtype=bool)
-
-            # for each point sampled on dubins path, get x, y, theta
-            for config in configurations:
-                x_cell = int(round(config[0]))
-                y_cell = int(round(config[1]))
-
-                theta = config[2] - math.pi / 2
-                R = np.asarray([
-                    [np.cos(theta), -np.sin(theta)],
-                    [np.sin(theta), np.cos(theta)]
-                ])
-
-                # rotate/translate vertices of ship from origin to sampled point with heading = theta
-                rot_vi = np.round(np.array([[x_cell], [y_cell]]) + R @ vertices.T).astype(int)
-
-                # check if any vertex of ship is outside of cost map (invalid path)
-                for v in rot_vi.T:
-                    if not (0 <= v[0] < m and 0 <= v[1] < n):
-                        invalid = True
-
-                if invalid:
-                    break
-
-                # draw rotated ship polygon and put occupied cells into a mask
-                rr, cc = draw.polygon(rot_vi[1, :], rot_vi[0, :])
-                swath[rr, cc] = True
-
-            if invalid:
-                continue
-
-            # determine smooth cost and compare to see if it is cheaper than cost from a different node
-            swath_cost = np.sum(cost_map[swath])
-            adj_cost = float(swath_cost + dubins_path.path_length())
-            if smooth_cost[vi] + adj_cost < smooth_cost[vj]:
-                smooth_cost[vj] = smooth_cost[vi] + adj_cost
-                prev[vj] = vi
-
-    # reconstruct path
-    smooth_path = [goal]
-    node = goal
-    while node != start:
-        prior_node, node = node, prev[node]
-        assert prior_node[1] >= node[1], "sequential nodes should always move forward in the y direction"
-        smooth_path.append(node)
-
-    return smooth_path, x, y, added_x, added_y
-
-
-def a_star(start, goal, turning_radius, n, m, cost_map, card_edge_set, ord_edge_set, cardinal_swath, ordinal_swath,
-           list_of_obstacles, ship_vertices):
-    # theta is measured ccw from y axis
-    a = 0.5
-    b = 0.5
-    free_path_interval = 1
-    generation = 0  # number of nodes expanded
-    openSet = dict()  # set of nodes considered for expansion
-    print("start", start)
-    openSet[start] = generation
-    closedSet = []
-    cameFrom = dict()
-    cameFrom[start] = None
-    cameFrom_by_edge = dict()
-    cameFrom_by_edge[start] = None
-    # cost from start
-    g_score = dict()
-    g_score[start] = 0
-    # f score (g score + heuristic) (estimation of cost to goal)
-    f_score = dict()
-    f_score[start] = heuristic(start, goal, turning_radius)
-    # path length between nodes
-    path_length = dict()
-    path_length[start] = 0
-    # heading_delta = dict()
-    # heading_delta[start] = 0
-    # priority queue of all visited node f scores
-    f_score_open_sorted = CustomPriorityQueue()
-    f_score_open_sorted.put((start, f_score[start]))  # put item in priority queue
-
-    # approx ship length from ship vertices by finding the largest euclid distance between each set of vertices
-    ship_length = max([dist(a, b) for a in ship_vertices for b in ship_vertices])
-    assert ship_length != 0, 'ship length cannot be 0'
-
-    # while np.shape(openSet)[0] != 0:
-    while len(openSet) != 0:
-        # node[0] = x position
-        # node[1] = y position
-        # node[2] = theta (heading)
-
-        node = f_score_open_sorted.get()[0]
-
-        # print("Generation: ", generation, sep=" ")
-        # print("NODE:", node, sep=" ")
-
-        # If ship past all obstacles, calc direct dubins path to goal
-
-        if generation % free_path_interval == 0 and node != goal:
-            past_all_obs = True
-            for obs in list_of_obstacles:
-                if not past_obstacle(node, obs):
-                    past_all_obs = False
-                    break
-
-            if past_all_obs:
-                print("Found path to goal")
-                cameFrom[goal] = node
-                path_length[goal] = heuristic(node, goal, turning_radius)
-                f_score[goal] = g_score[node] + path_length[goal]
-                pred = goal
-                node = pred
-
-        if node == goal:
-            print("Found path")
-            path = list()
-            new_path_length = list()
-            print("goal", goal)
-            # path_heading_delta = list()
-            cameFrom[goal] = cameFrom[node]
-            path.append(goal)
-            new_path_length.append(path_length[goal])
-
-            while node != start:
-                pred = cameFrom[node]
-                node = pred
-                path.append(node)
-                new_path_length.append(path_length[node])
-                # if heading_delta[node] > 2:
-                # heading_delta[node] = abs(heading_delta[node] - 8)
-                # path_heading_delta.append(heading_delta[node])
-
-            # print(path_heading_delta)
-            # print(path)
-
-            path.reverse()  # path: start -> goal
-            new_path_length.reverse()
-            print("path", path)
-            add_nodes = int(len(path))  # number of nodes to add in the path smoothing algorithm
-
-            orig_path = path.copy()
-            orig_cost = f_score[goal]
-            t0 = time.clock()
-            smooth_path, x1, y1, x2, y2 = path_smoothing(path, new_path_length, cost_map, turning_radius,
-                                                         start, goal, add_nodes, n, m, ship_vertices, dist_cuttoff=100)
-            t1 = time.clock() - t0
-            print("smooth time", t1)
-
-            return True, orig_cost, smooth_path, closedSet, x1, y1, x2, y2, orig_path
-
-        openSet.pop(node)
-        closedSet.append(node)
-
-        if (node[2] * 45) % 90 == 0:
-            edge_set = card_edge_set
-            swath_set = cardinal_swath
-        else:
-            edge_set = ord_edge_set
-            swath_set = ordinal_swath
-
-        for e in edge_set:
-            # print("edge:", e, sep=" ")
-            neighbour = Concat(node, e)
-            # print("neighbour:",neighbour, sep=" ")
-
-            if 0 <= neighbour[0] < m and 0 <= neighbour[1] < n:
-                # print("neighbour is valid")
-                # check if point is in closed set
-                neighbour_in_closed_set, closed_set_neighbour = is_point_in_set(neighbour, closedSet)
-                if neighbour_in_closed_set:
-                    continue
-
-                # If near obstacle, check cost map to find cost of swath
-                if near_obstacle(node, (m, n), list_of_obstacles, threshold=ship_length * 3):
-                    swath = get_swath(e, n, m, node, swath_set)
-                    mask = cost_map[swath]
-                    swath_cost = np.sum(mask)
-                else:
-                    swath_cost = 0
-
-                temp_path_length = heuristic(node, neighbour, turning_radius)
-                cost = swath_cost + temp_path_length
-                temp_g_score = g_score[node] + cost
-
-                if neighbour in openSet:
-                    neighbour_in_open_set = True
-                    open_set_neighbour = neighbour
-                else:
-                    neighbour_in_open_set = False
-                    open_set_neighbour = False
-
-                if not neighbour_in_open_set:
-                    # print("new node")
-                    heuristic_value = heuristic(neighbour, goal, turning_radius)
-                    openSet[neighbour] = generation
-                    cameFrom[neighbour] = node
-                    cameFrom_by_edge[neighbour] = e
-                    path_length[neighbour] = temp_path_length
-                    # heading_delta[neighbour] = abs(neighbour[2] - node[2])
-                    g_score[neighbour] = temp_g_score
-                    f_score[neighbour] = a * g_score[neighbour] + b * heuristic_value
-                    f_score_open_sorted.put((neighbour, f_score[neighbour]))
-                elif neighbour_in_open_set and temp_g_score < g_score[open_set_neighbour]:
-                    open_set_neighbour_heuristic_value = heuristic(open_set_neighbour, goal, turning_radius)
-                    # print("found cheaper cost to node")
-                    # print(open_set_neighbour)
-                    cameFrom[open_set_neighbour] = node
-                    cameFrom_by_edge[open_set_neighbour] = e
-                    path_length[open_set_neighbour] = temp_path_length
-                    g_score[open_set_neighbour] = temp_g_score
-                    f_score_open_sorted._update((open_set_neighbour, f_score[open_set_neighbour]),
-                                                a * g_score[
-                                                    open_set_neighbour] + b * open_set_neighbour_heuristic_value)
-                    f_score[open_set_neighbour] = a * g_score[
-                        open_set_neighbour] + b * open_set_neighbour_heuristic_value
-        generation = generation + 1
-    return (False, 'Fail', 'Fail', 'Fail')
 
 
 def create_circle(space, x, y, r):
@@ -557,34 +140,34 @@ def main():
                                    upper_offset=200, lower_offset=20, allow_overlap=False)
 
     # ship vertices
-    v = np.array([[-1, 4],
-                  [1, 4],
-                  [1, -4],
-                  [-1, -4]])
+    ship_vertices = np.array([[-1, 5],
+                              [1, 5],
+                              [1, -5],
+                              [-1, -5]])  # FIXME: code breaks if ship size is changed
 
     # y is pointing up, x is pointing to the right
     # must rotate all swaths pi/4 CCW to be facing up
     prim = Primitives(scale=30, rotate=True)
 
-    ordinal_swaths = generate_swath(v, prim.edge_set_ordinal, turning_radius, 1)
-    cardinal_swaths = generate_swath(v, prim.edge_set_cardinal, turning_radius, 0)
+    ordinal_swaths = generate_swath(ship_vertices, prim.edge_set_ordinal, turning_radius, 1)
+    cardinal_swaths = generate_swath(ship_vertices, prim.edge_set_cardinal, turning_radius, 0)
+
+    # initialize a star object
+    a_star = AStar(g_weight=0.5, h_weight=0.5, cmap=costmap_obj, primitives=prim, ship_vertices=ship_vertices)
 
     t0 = time.clock()
-    worked, orig_cost, smoothed_edge_path, nodes_visited, x1, y1, x2, y2, orig_path = a_star(start_pos, goal_pos, turning_radius,
-                                                                 n, m, costmap_obj.cost_map,
-                                                                 prim.edge_set_cardinal, prim.edge_set_ordinal,
-                                                                 cardinal_swaths, ordinal_swaths,
-                                                                 costmap_obj.obstacles, v)
+    worked, orig_cost, smoothed_edge_path, nodes_visited, x1, y1, x2, y2, orig_path = \
+        a_star.search(start_pos, goal_pos, turning_radius, cardinal_swaths, ordinal_swaths)
 
     t1 = time.clock() - t0
     print("Time elapsed: ", t1)
     print("Hz", 1 / t1)
 
     smoothed_cost = costmap_obj.compute_path_cost(path=smoothed_edge_path.copy(), reverse_path=True,
-                                                  turning_radius=turning_radius, ship_vertices=v)
+                                                  turning_radius=turning_radius, ship_vertices=ship_vertices)
     # this should be the same as `original_cost` !!
     recomputed_original_cost = costmap_obj.compute_path_cost(path=orig_path, reverse_path=False,
-                                                             turning_radius=turning_radius, ship_vertices=v)
+                                                             turning_radius=turning_radius, ship_vertices=ship_vertices)
     print("\nPath cost:\n\toriginal: {:.4f}\n\twith smoothing: {:.4f}\n".format(orig_cost, smoothed_cost))
 
     fig1, ax1 = plt.subplots(1, 2, figsize=(5, 10))
@@ -655,8 +238,8 @@ def main():
     ship = Ship(space, initial_vel, start_pos[0], start_pos[1], start_pos[2])
     i = 0
     vs = np.zeros((5, 2))
-    for v in ship.shape.get_vertices():
-        x, y = v.rotated(ship.body.angle) + ship.body.position
+    for ship_vertices in ship.shape.get_vertices():
+        x, y = ship_vertices.rotated(ship.body.angle) + ship.body.position
         vs[i][0] = x
         vs[i][1] = y
         i += 1
