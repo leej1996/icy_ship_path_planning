@@ -15,16 +15,19 @@ from cost_map import CostMap
 from primitives import Primitives
 
 
-def generate_swath(vertices, edge_set, turning_radius, heading):
+def generate_swath(ship_vertices, edge_set, turning_radius, heading, prim):
     '''
     Will have key of (edge, start heading)
     '''
     swath_set = {}
-    start_pos = (155, 155, heading)
+    dist = lambda a, b: abs(a[0] - a[1])
+    # why do we care about the max ship length from the centre of the ship?
+    max_ship_length = np.ceil(max(dist(a, b) for a in ship_vertices for b in ship_vertices)).astype(int)
+    start_pos = [prim.max_prim + max_ship_length] * 2 + [heading]
 
     for e in edge_set:
         e = tuple(e)
-        array = np.zeros((311, 311), dtype=bool)  # (max size (150) + max length of boat rounded up (5)) * 2 + 1
+        array = np.zeros([(prim.max_prim + max_ship_length) * 2 + 1] * 2, dtype=bool)
         translated_e = np.asarray(e) + np.array([start_pos[0], start_pos[1], 0])
         dubins_path = dubins.shortest_path((start_pos[0], start_pos[1], math.radians((start_pos[2] + 2) * 45)),
                                            (translated_e[0], translated_e[1],
@@ -41,7 +44,7 @@ def generate_swath(vertices, edge_set, turning_radius, heading):
                 [np.cos(theta), -np.sin(theta)],
                 [np.sin(theta), np.cos(theta)]
             ])
-            rot_vi = np.round(np.array([[x_cell], [y_cell]]) + R @ vertices.T).astype(int)
+            rot_vi = np.round(np.array([[x_cell], [y_cell]]) + R @ ship_vertices.T).astype(int)
 
             rr, cc = draw.polygon(rot_vi[1, :], rot_vi[0, :])
             array[rr, cc] = True
@@ -143,14 +146,14 @@ def main():
     ship_vertices = np.array([[-1, 5],
                               [1, 5],
                               [1, -5],
-                              [-1, -5]])  # FIXME: code breaks if ship size is changed
+                              [-1, -5]])
 
     # y is pointing up, x is pointing to the right
     # must rotate all swaths pi/4 CCW to be facing up
     prim = Primitives(scale=30, rotate=True)
 
-    ordinal_swaths = generate_swath(ship_vertices, prim.edge_set_ordinal, turning_radius, 1)
-    cardinal_swaths = generate_swath(ship_vertices, prim.edge_set_cardinal, turning_radius, 0)
+    ordinal_swaths = generate_swath(ship_vertices, prim.edge_set_ordinal, turning_radius, 1, prim)
+    cardinal_swaths = generate_swath(ship_vertices, prim.edge_set_cardinal, turning_radius, 0, prim)
 
     # initialize a star object
     a_star = AStar(g_weight=0.5, h_weight=0.5, cmap=costmap_obj, primitives=prim, ship_vertices=ship_vertices)

@@ -20,9 +20,10 @@ class AStar:
         self.chan_h, self.chan_w = np.shape(self.cmap.cost_map)
         self.primitives = primitives
         self.ship_vertices = ship_vertices
-        # compute ship length from ship vertices
-        self.ship_length = max(self.dist(a, b) for a in self.ship_vertices for b in self.ship_vertices)
-        assert self.ship_length != 0, 'ship length cannot be 0'
+        # compute ship length
+        dist = lambda a, b: abs(a[0] - a[1])
+        self.max_ship_length = np.ceil(max(dist(a, b) for a in ship_vertices for b in ship_vertices)).astype(int)
+        assert self.max_ship_length != 0, 'ship length cannot be 0'
 
     def search(self, start, goal, turning_radius, cardinal_swath, ordinal_swath):
         # theta is measured ccw from y axis
@@ -112,7 +113,7 @@ class AStar:
 
                     # If near obstacle, check cost map to find cost of swath
                     if self.near_obstacle(node, self.cmap.cost_map.shape, self.cmap.obstacles,
-                                          threshold=self.ship_length * 3):
+                                          threshold=self.max_ship_length * 3):
                         swath = self.get_swath(e, node, swath_set)
                         mask = self.cmap.cost_map[swath]
                         swath_cost = np.sum(mask)
@@ -161,9 +162,7 @@ class AStar:
 
         # swath mask has starting node at the centre and want to put at the starting node of currently expanded node
         # in the cmap, need to remove the extra columns/rows of the swath mask
-        max_val = int(
-            self.primitives.max_prim + np.ceil(np.sqrt(self.ship_vertices[0][0] ** 2 + self.ship_vertices[0][1] ** 2))
-        )  # TODO: this still feels very hacky...
+        max_val = int(self.primitives.max_prim + self.max_ship_length)
         swath_size = raw_swath.shape[0]
         min_y = start_pos[1] - max_val
         max_y = start_pos[1] + max_val + 1
