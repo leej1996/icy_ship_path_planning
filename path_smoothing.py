@@ -1,5 +1,4 @@
 import math
-
 import dubins
 import numpy as np
 from skimage import draw
@@ -67,11 +66,11 @@ def path_smoothing(path, path_length, cost_map, turning_radius,
     smooth_cost = {}
     for i, vi in enumerate(path):
         smooth_cost[vi] = np.inf
-        prev[vi] = path[i - 1] if i > 0 else None
+        prev[vi] = None
     smooth_cost[path[0]] = 0
 
     for i, vi in enumerate(path):
-        for _, vj in enumerate(path[i + 1:]):
+        for j, vj in enumerate(path[i + 1:]):
             # determine cost between node vi and vj
             invalid = False
             dubins_path = dubins.shortest_path((vi[0], vi[1], math.radians((vi[2] + 2) * 45) % (2 * math.pi)),
@@ -79,7 +78,8 @@ def path_smoothing(path, path_length, cost_map, turning_radius,
                                                turning_radius - eps)
 
             if dubins_path.path_length() > dist_cuttoff:
-                break
+                if j != 0:
+                    break
 
             configurations, _ = dubins_path.sample_many(1.2)
             swath = np.zeros_like(cost_map, dtype=bool)
