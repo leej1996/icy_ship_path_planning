@@ -89,24 +89,24 @@ def plot_path(path, cost_map, turn_radius):
     plt.show()
 
 
-def create_circle(space, x, y, r):
+def create_polygon(space, vertices, x,y, density):
     body = pymunk.Body()
-    body.position = (x, y)
-    shape = pymunk.Circle(body, r)
-    shape.density = 3
+    body.position = (x,y)
+    #body.angle = 0
+    shape = pymunk.Poly(body, vertices)
+    shape.density = density
     space.add(body, shape)
     return shape
 
 
 class Ship:
     def __init__(self, space, v, x, y, theta):
-        self.vertices = [(0, 2), (0.5, 1), (0.5, -1), (-0.5, -1), (-0.5, 1)]
+        self.vertices = [(0, 2), (0.5, 1), (0.5, -2), (-0.5, -2), (-0.5, 1)]
         self.body = pymunk.Body(1, 100, body_type=pymunk.Body.KINEMATIC)
         self.body.position = (x, y)
         self.body.velocity = v
         self.body.angle = math.radians(theta)
         self.shape = pymunk.Poly(self.body, self.vertices)
-        # self.shape = pymunk.Circle(self.body, 0.5)
         space.add(self.body, self.shape)
         self.path_pos = 0
 
@@ -129,6 +129,7 @@ def main():
     # Resolution is 10 m
     n = 600
     m = 70
+    density = 3
     theta = 0  # Possible values: 0 - 7, each number should be multiplied by 45 degrees (measured CCW from up)
     turning_radius = 30  # 300 m turn radius
     obstacle_penalty = 3
@@ -140,7 +141,7 @@ def main():
 
     # generate random obstacles
     costmap_obj.generate_obstacles(start_pos, goal_pos, num_obs=160, min_r=1, max_r=10,
-                                   upper_offset=200, lower_offset=20, allow_overlap=False)
+                                               upper_offset=200, lower_offset=20, allow_overlap=False)
 
     # ship vertices
     ship_vertices = np.array([[-1, 5],
@@ -216,29 +217,30 @@ def main():
     node_plot = np.zeros((n, m))
     print("nodes visited")
     for node in nodes_visited:
-        # print(node)
         node_plot[node[1], node[0]] = node_plot[node[1], node[0]] + 1
 
     ax1[1].imshow(node_plot, origin='lower')
     # '''
     # '''
     print("Num of nodes expanded", np.sum(node_plot))
-    plt.show()
+    #plt.show()
 
-    fig = plt.figure(figsize=(5, 10))
-    plt.imshow(costmap_obj.cost_map)
-    plt.show()
+    #fig = plt.figure(figsize=(5, 10))
+    #plt.imshow(costmap_obj.cost_map)
+    #plt.show()
+
     # FIXME: skipping pymunk stuff for now
-    exit()
+    # exit()
 
     space = pymunk.Space()
     space.gravity = (0, 0)
     initial_vel = Vec2d(0, 0)
 
-    circles = []
+    polygons = []
     patch_list = []
 
     ship = Ship(space, initial_vel, start_pos[0], start_pos[1], start_pos[2])
+    print("HEADING", ship.body.angle)
     i = 0
     vs = np.zeros((5, 2))
     for ship_vertices in ship.shape.get_vertices():
@@ -248,12 +250,12 @@ def main():
         i += 1
 
     ship_patch = patches.Polygon(vs, True)
-    # ship_patch = patches.Circle((ship.body.position.x, ship.body.position.y), 0.5)
 
     # TODO: update pymunk stuff
+    print("GENERATE OBSTACLES")
     for obs in costmap_obj.obstacles:
-        circles.append(create_circle(space, *obs['centre'], obs['radius']))
-        patch_list.append(patches.Circle(*obs['centre'], obs['radius'], fill=False))
+        polygons.append(create_polygon(space, (obs['vertices'] - np.array(obs['centre'])).tolist(), *obs['centre'], density))
+        patch_list.append(patches.Polygon(obs['vertices'], True))
 
     path = path.T
     heading_list = np.zeros(np.shape(path)[0])
@@ -300,12 +302,12 @@ def main():
 
     def init():
         ax2.add_patch(ship_patch)
-        for circle, patch in zip(circles, patch_list):
+        for patch in patch_list:
             ax2.add_patch(patch)
         return []
 
-    def animate(dt, ship_patch, ship, circles, patch_list):
-        # print(dt)
+    def animate(dt, ship_patch, ship, polygons, patch_list):
+        print(dt)
         # 20 ms step size
         for x in range(10):
             space.step(2 / 100 / 10)
@@ -318,36 +320,35 @@ def main():
         if ship.path_pos < np.shape(vel_path)[0]:
             ship.body.velocity = Vec2d(vel_path[ship.path_pos, 0], vel_path[ship.path_pos, 1])
             ship.body.angular_velocity = angular_vel[ship.path_pos]
-            if dist(ship_pos, path[ship.path_pos, :]) < 0.01:
+            if a_star.dist(ship_pos, path[ship.path_pos, :]) < 0.01:
                 ship.set_path_pos(ship.path_pos + 1)
 
-        animate_ship(dt, ship_patch, ship)
-        for circle, patch in zip(circles, patch_list):
-            animate_obstacle(dt, circle, patch)
+        animate_ship(dt, ship, ship_patch)
+        for poly, patch in zip(polygons, patch_list):
+            animate_obstacle(dt, poly, patch)
         return []
 
-    def animate_ship(dt, patch, ship):
+    def animate_ship(dt, ship, patch):
         heading = ship.body.angle
         R = np.asarray([[math.cos(heading), -math.sin(heading)], [math.sin(heading), math.cos(heading)]])
         vs = np.asarray(ship.shape.get_vertices()) @ R + np.asarray(ship.body.position)
         patch.set_xy(vs)
-        # pos_x = ship.body.position.x
-        # pos_y = ship.body.position.y
-        # patch.center = (pos_x, pos_y)
         return patch,
 
-    def animate_obstacle(dt, circle, patch):
-        pos_x = circle.body.position.x
-        pos_y = circle.body.position.y
-        patch.center = (pos_x, pos_y)
+    def animate_obstacle(dt, polygon, patch):
+        heading = polygon.body.angle
+        R = np.asarray([[math.cos(heading), -math.sin(heading)], [math.sin(heading), math.cos(heading)]])
+        vs = np.asarray(polygon.get_vertices()) @ R + np.asarray(polygon.body.position)
+        patch.set_xy(vs)
         return patch_list
 
+    print("START ANIMATION")
     frames = np.shape(path)[0]
     anim = animation.FuncAnimation(fig2,
                                    animate,
                                    init_func=init,
                                    frames=frames,
-                                   fargs=(ship_patch, ship, circles, patch_list,),
+                                   fargs=(ship_patch, ship, polygons, patch_list,),
                                    interval=20,
                                    blit=True,
                                    repeat=False)
