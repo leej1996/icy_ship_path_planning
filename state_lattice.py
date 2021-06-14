@@ -4,6 +4,7 @@ import time
 import dubins
 import numpy as np
 import pymunk
+import pymunk.constraints
 from matplotlib import animation
 from matplotlib import patches
 from matplotlib import pyplot as plt
@@ -89,19 +90,29 @@ def plot_path(path, cost_map, turn_radius):
     plt.show()
 
 
-def create_polygon(space, vertices, x,y, density):
+def create_polygon(space, staticBody, vertices, x,y, density):
     body = pymunk.Body()
     body.position = (x,y)
-    #body.angle = 0
     shape = pymunk.Poly(body, vertices)
     shape.density = density
     space.add(body, shape)
+
+    # create pivot constraint to simulate linear friction
+    pivot = pymunk.constraints.PivotJoint(staticBody, body, (0,0))
+    pivot.max_bias = 0
+    pivot.max_force = 10000.0
+
+    # create gear constraint to simulate angular friction
+    gear = pymunk.constraints.GearJoint(staticBody, body, 0, 1)
+    gear.max_bias = 0
+    gear.max_force = 5000.0
+    space.add(pivot, gear)
     return shape
 
 
 class Ship:
     def __init__(self, space, v, x, y, theta):
-        self.vertices = [(0, 2), (0.5, 1), (0.5, -2), (-0.5, -2), (-0.5, 1)]
+        self.vertices = [(0, 4), (1, 3), (1, -4), (-1, -4), (-1, 3)]
         self.body = pymunk.Body(1, 100, body_type=pymunk.Body.KINEMATIC)
         self.body.position = (x, y)
         self.body.velocity = v
@@ -220,14 +231,8 @@ def main():
         node_plot[node[1], node[0]] = node_plot[node[1], node[0]] + 1
 
     ax1[1].imshow(node_plot, origin='lower')
-    # '''
-    # '''
-    print("Num of nodes expanded", np.sum(node_plot))
-    #plt.show()
 
-    #fig = plt.figure(figsize=(5, 10))
-    #plt.imshow(costmap_obj.cost_map)
-    #plt.show()
+    print("Num of nodes expanded", np.sum(node_plot))
 
     # FIXME: skipping pymunk stuff for now
     # exit()
@@ -235,6 +240,7 @@ def main():
     space = pymunk.Space()
     space.gravity = (0, 0)
     initial_vel = Vec2d(0, 0)
+    staticBody = space.static_body  # create a static body for friction constraints
 
     polygons = []
     patch_list = []
@@ -249,12 +255,12 @@ def main():
         vs[i][1] = y
         i += 1
 
-    ship_patch = patches.Polygon(vs, True)
+    ship_patch = patches.Polygon(vs, True, color='green')
 
     # TODO: update pymunk stuff
     print("GENERATE OBSTACLES")
     for obs in costmap_obj.obstacles:
-        polygons.append(create_polygon(space, (obs['vertices'] - np.array(obs['centre'])).tolist(), *obs['centre'], density))
+        polygons.append(create_polygon(space, staticBody, (obs['vertices'] - np.array(obs['centre'])).tolist(), *obs['centre'], density))
         patch_list.append(patches.Polygon(obs['vertices'], True))
 
     path = path.T
@@ -307,7 +313,7 @@ def main():
         return []
 
     def animate(dt, ship_patch, ship, polygons, patch_list):
-        print(dt)
+        # print(dt)
         # 20 ms step size
         for x in range(10):
             space.step(2 / 100 / 10)
