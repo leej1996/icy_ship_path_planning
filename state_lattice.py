@@ -1,4 +1,6 @@
 import math
+import os
+import pickle
 import time
 
 import dubins
@@ -15,7 +17,7 @@ from a_star_search import AStar
 from cost_map import CostMap
 from primitives import Primitives
 from ship import Ship
-from utils import heading_to_world_frame, plot_path
+from utils import heading_to_world_frame
 
 
 def generate_swath(ship: Ship, edge_set: np.ndarray, heading: int, prim: Primitives) -> dict:
@@ -83,26 +85,33 @@ def create_polygon(space, staticBody, vertices, x,y, density):
 
 
 def main():
+    load_costmap_file = ""  # "sample_costmaps/random_obstacles_1.pk"
     # Resolution is 10 m
     n = 600
     m = 70
-    initial_heading = 2 * math.pi / 3
+    initial_heading = math.pi / 2 + 1e-1
     density = 3
     turning_radius = 30  # 300 m turn radius
-    ship_vertices = np.array([[-1, 5],
-                              [1, 5],
-                              [1, -5],
-                              [-1, -5]])
+    ship_vertices = np.array([[0, 4],
+                              [1, 3],
+                              [1, -4],
+                              [-1, -4],
+                              [-1, 3]])
     obstacle_penalty = 3
     start_pos = (35, 10, 0)  # (x, y, theta), possible values for theta 0 - 7 measured from ships positive x axis
     goal_pos = (35, 590, 0)
 
-    # initialize costmap
-    costmap_obj = CostMap(n, m, obstacle_penalty)
+    # load costmap object from file if specified
+    if load_costmap_file:
+        with open(load_costmap_file, "rb") as fd:
+            costmap_obj = pickle.load(fd)
+    else:
+        # initialize costmap
+        costmap_obj = CostMap(n, m, obstacle_penalty)
 
-    # generate random obstacles
-    costmap_obj.generate_obstacles(start_pos, goal_pos, num_obs=160, min_r=1, max_r=10,
-                                   upper_offset=200, lower_offset=20, allow_overlap=False)
+        # generate random obstacles
+        costmap_obj.generate_obstacles(start_pos, goal_pos, num_obs=160, min_r=1, max_r=10,
+                                       upper_offset=200, lower_offset=20, allow_overlap=False)
 
     # initialize ship object
     ship = Ship(ship_vertices, start_pos, goal_pos, initial_heading, turning_radius)
@@ -174,7 +183,8 @@ def main():
     node_plot = np.zeros((n, m))
     print("nodes visited")
     for node in nodes_visited:
-        node_plot[node[1], node[0]] = node_plot[node[1], node[0]] + 1
+        r, c = int(round(node[1])), int(round(node[0]))
+        node_plot[r, c] = node_plot[r, c] + 1
 
     ax1[1].imshow(node_plot, origin='lower')
     print("Num of nodes expanded", np.sum(node_plot))
@@ -301,6 +311,14 @@ def main():
                                    repeat=False)
 
     plt.show()
+
+    # get response from user for saving costmap
+    save_costmap_file = input("\n\nFile name to save out costmap (press enter to ignore)\n").lower()
+    if save_costmap_file:
+        fp = os.path.join("sample_costmaps", save_costmap_file + ".pk")
+        with open(fp, "wb") as fd:
+            pickle.dump(costmap_obj, fd)
+            print("Successfully saved costmap object to file path '{}'".format(fp))
 
 
 if __name__ == "__main__":

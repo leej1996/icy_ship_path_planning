@@ -23,7 +23,6 @@ class Ship:
         self.body.position = start_pos[:2]
         self.body.velocity = Vec2d(0, 0)
         self.body.angle = math.radians(initial_heading)
-        # self.vertices = [(0, 4), (1, 3), (1, -4), (-1, -4), (-1, 3)]  # we don't need this right?
         self.shape = pymunk.Poly(self.body, [tuple(item) for item in self.vertices])  # uses same ship vertices
         self.path_pos = 0
 
