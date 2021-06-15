@@ -4,6 +4,7 @@ import time
 import dubins
 import numpy as np
 import pymunk
+import pymunk.constraints
 from matplotlib import animation
 from matplotlib import patches
 from matplotlib import pyplot as plt
@@ -61,11 +62,32 @@ def generate_swath(ship: Ship, edge_set: np.ndarray, heading: int, prim: Primiti
     return swath_set
 
 
+def create_polygon(space, staticBody, vertices, x,y, density):
+    body = pymunk.Body()
+    body.position = (x,y)
+    shape = pymunk.Poly(body, vertices)
+    shape.density = density
+    space.add(body, shape)
+
+    # create pivot constraint to simulate linear friction
+    pivot = pymunk.constraints.PivotJoint(staticBody, body, (0,0))
+    pivot.max_bias = 0
+    pivot.max_force = 10000.0
+
+    # create gear constraint to simulate angular friction
+    gear = pymunk.constraints.GearJoint(staticBody, body, 0, 1)
+    gear.max_bias = 0
+    gear.max_force = 5000.0
+    space.add(pivot, gear)
+    return shape
+
+
 def main():
     # Resolution is 10 m
     n = 600
     m = 70
     initial_heading = 2 * math.pi / 3
+    density = 3
     turning_radius = 30  # 300 m turn radius
     ship_vertices = np.array([[-1, 5],
                               [1, 5],
@@ -131,8 +153,8 @@ def main():
                                                turning_radius - 1e-4)
             configurations, _ = dubins_path.sample_many(0.2)
             # 0.01
-            x = list()
-            y = list()
+            x = []
+            y = []
             for config in configurations:
                 x.append(config[0])
                 y.append(config[1])
@@ -152,28 +174,20 @@ def main():
     node_plot = np.zeros((n, m))
     print("nodes visited")
     for node in nodes_visited:
-        # print(node)
         node_plot[node[1], node[0]] = node_plot[node[1], node[0]] + 1
 
     ax1[1].imshow(node_plot, origin='lower')
-    # '''
-    # '''
     print("Num of nodes expanded", np.sum(node_plot))
-    plt.show()
-
-    fig = plt.figure(figsize=(5, 10))
-    plt.imshow(costmap_obj.cost_map)
-    plt.show()
-    # FIXME: skipping pymunk stuff for now
-    exit()
 
     space = pymunk.Space()
+    space.add(ship.body, ship.shape)
     space.gravity = (0, 0)
+    staticBody = space.static_body  # create a static body for friction constraints
 
-    circles = []
+    polygons = []
     patch_list = []
 
-    ship = Ship(space, initial_vel, start_pos[0], start_pos[1], start_pos[2])
+    print("HEADING", ship.body.angle)
     i = 0
     vs = np.zeros((5, 2))
     for ship_vertices in ship.shape.get_vertices():
@@ -182,13 +196,13 @@ def main():
         vs[i][1] = y
         i += 1
 
-    ship_patch = patches.Polygon(vs, True)
-    # ship_patch = patches.Circle((ship.body.position.x, ship.body.position.y), 0.5)
+    ship_patch = patches.Polygon(vs, True, color='green')
 
     # TODO: update pymunk stuff
+    print("GENERATE OBSTACLES")
     for obs in costmap_obj.obstacles:
-        circles.append(create_circle(space, *obs['centre'], obs['radius']))
-        patch_list.append(patches.Circle(*obs['centre'], obs['radius'], fill=False))
+        polygons.append(create_polygon(space, staticBody, (obs['vertices'] - np.array(obs['centre'])).tolist(), *obs['centre'], density))
+        patch_list.append(patches.Polygon(obs['vertices'], True))
 
     path = path.T
     heading_list = np.zeros(np.shape(path)[0])
@@ -209,7 +223,7 @@ def main():
             else:
                 heading = math.pi
         else:
-            heading = (math.atan2(velocity[1], velocity[0]) - math.pi / 2 + 2 * math.pi) % (2 * math.pi)
+            heading = (math.atan2(velocity[1], velocity[0]) - math.pi / 2 + 2 * math.pi) % (2 * math.pi)  # FIXME: update
         heading_list[i] = heading
         # print("velocity: ", velocity, sep=" ")
         vel_path[i, :] = velocity.T * 50
@@ -235,11 +249,11 @@ def main():
 
     def init():
         ax2.add_patch(ship_patch)
-        for circle, patch in zip(circles, patch_list):
+        for patch in patch_list:
             ax2.add_patch(patch)
         return []
 
-    def animate(dt, ship_patch, ship, circles, patch_list):
+    def animate(dt, ship_patch, ship, polygons, patch_list):
         # print(dt)
         # 20 ms step size
         for x in range(10):
@@ -253,36 +267,35 @@ def main():
         if ship.path_pos < np.shape(vel_path)[0]:
             ship.body.velocity = Vec2d(vel_path[ship.path_pos, 0], vel_path[ship.path_pos, 1])
             ship.body.angular_velocity = angular_vel[ship.path_pos]
-            if dist(ship_pos, path[ship.path_pos, :]) < 0.01:
+            if a_star.dist(ship_pos, path[ship.path_pos, :]) < 0.01:
                 ship.set_path_pos(ship.path_pos + 1)
 
-        animate_ship(dt, ship_patch, ship)
-        for circle, patch in zip(circles, patch_list):
-            animate_obstacle(dt, circle, patch)
+        animate_ship(dt, ship, ship_patch)
+        for poly, patch in zip(polygons, patch_list):
+            animate_obstacle(dt, poly, patch)
         return []
 
-    def animate_ship(dt, patch, ship):
+    def animate_ship(dt, ship, patch):
         heading = ship.body.angle
         R = np.asarray([[math.cos(heading), -math.sin(heading)], [math.sin(heading), math.cos(heading)]])
         vs = np.asarray(ship.shape.get_vertices()) @ R + np.asarray(ship.body.position)
         patch.set_xy(vs)
-        # pos_x = ship.body.position.x
-        # pos_y = ship.body.position.y
-        # patch.center = (pos_x, pos_y)
         return patch,
 
-    def animate_obstacle(dt, circle, patch):
-        pos_x = circle.body.position.x
-        pos_y = circle.body.position.y
-        patch.center = (pos_x, pos_y)
+    def animate_obstacle(dt, polygon, patch):
+        heading = polygon.body.angle
+        R = np.asarray([[math.cos(heading), -math.sin(heading)], [math.sin(heading), math.cos(heading)]])
+        vs = np.asarray(polygon.get_vertices()) @ R + np.asarray(polygon.body.position)
+        patch.set_xy(vs)
         return patch_list
 
+    print("START ANIMATION")
     frames = np.shape(path)[0]
     anim = animation.FuncAnimation(fig2,
                                    animate,
                                    init_func=init,
                                    frames=frames,
-                                   fargs=(ship_patch, ship, circles, patch_list,),
+                                   fargs=(ship_patch, ship, polygons, patch_list,),
                                    interval=20,
                                    blit=True,
                                    repeat=False)
