@@ -43,6 +43,8 @@ class AStar:
 
         while len(openSet) != 0:
             node = f_score_open_sorted.get()[0]
+            print("GENERATION", generation)
+            print("NODE:", node)
 
             # If ship past all obstacles, calc direct dubins path to goal
             if generation % free_path_interval == 0 and node != goal:
@@ -99,7 +101,9 @@ class AStar:
                 swath_set = ordinal_swath
 
             for e in edge_set:
+                print("EDGE", e)
                 neighbour = self.concat(node, e)
+                print("NEIGHBOUR",neighbour)
 
                 if 0 <= neighbour[0] < self.chan_w and 0 <= neighbour[1] < self.chan_h:
                     # check if point is in closed point_set
@@ -119,6 +123,7 @@ class AStar:
                     temp_path_length = self.heuristic(node, neighbour)
                     cost = swath_cost + temp_path_length
                     temp_g_score = g_score[node] + cost
+                    print("cost", cost)
 
                     if neighbour in openSet:
                         neighbour_in_open_set = True
@@ -161,10 +166,10 @@ class AStar:
         # in the cmap, need to remove the extra columns/rows of the swath mask
         max_val = int(self.primitives.max_prim + self.ship.max_ship_length)
         swath_size = raw_swath.shape[0]
-        min_y = start_pos[1] - max_val
-        max_y = start_pos[1] + max_val + 1
-        min_x = start_pos[0] - max_val
-        max_x = start_pos[0] + max_val + 1
+        min_y = int(start_pos[1]) - max_val
+        max_y = int(start_pos[1]) + max_val + 1
+        min_x = int(start_pos[0]) - max_val
+        max_x = int(start_pos[0]) + max_val + 1
 
         # Too far to the right
         if max_x >= self.chan_w:
@@ -227,7 +232,8 @@ class AStar:
             heading = heading - 2 * math.pi
         heading = heading / (math.pi / 4)
 
-        return int(result[0]), int(result[1]), int(round(heading))
+        #return int(result[0]), int(result[1]), int(round(heading))
+        return result[0], result[1], int(round(heading))
 
     @staticmethod
     def is_point_in_set(point, point_set):
