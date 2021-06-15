@@ -57,9 +57,11 @@ class Primitives:
         if rotate:
             self.rotate()
 
+        self.max_prim = self.get_max_prim()
+
     @staticmethod
     def view(edge_set, save_fig_fp="primitives.png"):
-        """ plots all the primitives in the edge set """
+        """ plots all the primitives in the edge point_set """
         # use an arrow to indicate node location and heading
         fig = plt.figure(figsize=(8, 4))
         arrow = partial(plt.arrow, head_width=0.2, width=0.05, ec="green")
@@ -90,3 +92,10 @@ class Primitives:
 
         self.edge_set_cardinal = np.round((self.edge_set_cardinal @ R.T)).astype(int)
         self.edge_set_ordinal = np.round((self.edge_set_ordinal @ R.T)).astype(int)
+
+    def get_max_prim(self):
+        # compute the total space occupied by the primitives
+        prims = np.concatenate((self.edge_set_ordinal, self.edge_set_cardinal))
+        max_x, min_x = prims[:, 0].max(), prims[:, 0].min()
+        max_y, min_y = prims[:, 1].max(), prims[:, 1].min()
+        return max(max_x, max_y, abs(min_x), abs(min_y))
