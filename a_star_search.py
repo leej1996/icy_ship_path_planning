@@ -1,5 +1,5 @@
-import time
 import math
+import time
 
 import dubins
 import numpy as np
@@ -8,25 +8,22 @@ from cost_map import CostMap
 from path_smoothing import path_smoothing
 from primitives import Primitives
 from priority_queue import CustomPriorityQueue
+from ship import Ship
+from utils import heading_to_world_frame
 
 
 class AStar:
 
     def __init__(self, g_weight: float, h_weight: float, cmap: CostMap,
-                 primitives: Primitives, ship_vertices: np.ndarray):
+                 primitives: Primitives, ship: Ship):
         self.g_weight = g_weight
         self.h_weight = h_weight
         self.cmap = cmap
         self.chan_h, self.chan_w = np.shape(self.cmap.cost_map)
         self.primitives = primitives
-        self.ship_vertices = ship_vertices
-        # compute ship length
-        dist = lambda a, b: abs(a[0] - a[1])
-        self.max_ship_length = np.ceil(max(dist(a, b) for a in ship_vertices for b in ship_vertices)).astype(int)
-        assert self.max_ship_length != 0, 'ship length cannot be 0'
+        self.ship = ship
 
-    def search(self, start, goal, turning_radius, cardinal_swath, ordinal_swath):
-        # theta is measured ccw from y axis
+    def search(self, start: tuple, goal: tuple, cardinal_swath: dict, ordinal_swath: dict):
         free_path_interval = 1
         generation = 0  # number of nodes expanded
         print("start", start)
@@ -37,7 +34,7 @@ class AStar:
         # cost from start
         g_score = {start: 0}
         # f score (g score + heuristic) (estimation of cost to goal)
-        f_score = {start: self.heuristic(start, goal, turning_radius)}
+        f_score = {start: self.heuristic(start, goal)}
         # path length between nodes
         path_length = {start: 0}
         # priority queue of all visited node f scores
@@ -53,10 +50,10 @@ class AStar:
                     self.past_obstacle(node, obs) for obs in self.cmap.obstacles
                 )
 
-                if past_all_obs:
+                if past_all_obs:  # FIXME: we are not considering the costs of the channel boundaries here
                     print("Found path to goal")
                     cameFrom[goal] = node
-                    path_length[goal] = self.heuristic(node, goal, turning_radius)
+                    path_length[goal] = self.heuristic(node, goal)
                     f_score[goal] = g_score[node] + path_length[goal]
                     pred = goal
                     node = pred
@@ -84,9 +81,8 @@ class AStar:
                 orig_path = path.copy()
                 orig_cost = f_score[goal]
                 t0 = time.clock()
-                smooth_path, x1, y1, x2, y2 = path_smoothing(path, new_path_length, self.cmap.cost_map, turning_radius,
-                                                             start, goal, add_nodes, self.ship_vertices,
-                                                             dist_cuttoff=100)
+                smooth_path, x1, y1, x2, y2 = path_smoothing(path, new_path_length, self.cmap.cost_map,
+                                                             start, goal, self.ship, add_nodes, dist_cuttoff=100)
                 t1 = time.clock() - t0
                 print("smooth time", t1)
 
@@ -113,14 +109,14 @@ class AStar:
 
                     # If near obstacle, check cost map to find cost of swath
                     if self.near_obstacle(node, self.cmap.cost_map.shape, self.cmap.obstacles,
-                                          threshold=self.max_ship_length * 3):
+                                          threshold=self.ship.max_ship_length * 3):
                         swath = self.get_swath(e, node, swath_set)
                         mask = self.cmap.cost_map[swath]
                         swath_cost = np.sum(mask)
                     else:
                         swath_cost = 0
 
-                    temp_path_length = self.heuristic(node, neighbour, turning_radius)
+                    temp_path_length = self.heuristic(node, neighbour)
                     cost = swath_cost + temp_path_length
                     temp_g_score = g_score[node] + cost
 
@@ -132,7 +128,7 @@ class AStar:
                         open_set_neighbour = False
 
                     if not neighbour_in_open_set:
-                        heuristic_value = self.heuristic(neighbour, goal, turning_radius)
+                        heuristic_value = self.heuristic(neighbour, goal)
                         openSet[neighbour] = generation
                         cameFrom[neighbour] = node
                         cameFrom_by_edge[neighbour] = e
@@ -142,7 +138,7 @@ class AStar:
                         f_score[neighbour] = self.g_weight * g_score[neighbour] + self.h_weight * heuristic_value
                         f_score_open_sorted.put((neighbour, f_score[neighbour]))
                     elif temp_g_score < g_score[open_set_neighbour]:
-                        open_set_neighbour_heuristic_value = self.heuristic(open_set_neighbour, goal, turning_radius)
+                        open_set_neighbour_heuristic_value = self.heuristic(open_set_neighbour, goal)
                         cameFrom[open_set_neighbour] = node
                         cameFrom_by_edge[open_set_neighbour] = e
                         path_length[open_set_neighbour] = temp_path_length
@@ -155,6 +151,7 @@ class AStar:
             generation += 1
         return False, 'Fail', 'Fail', 'Fail'
 
+    # helper methods
     def get_swath(self, e, start_pos, swath_set):
         swath = np.zeros_like(self.cmap.cost_map, dtype=bool)
         heading = int(start_pos[2])
@@ -162,7 +159,7 @@ class AStar:
 
         # swath mask has starting node at the centre and want to put at the starting node of currently expanded node
         # in the cmap, need to remove the extra columns/rows of the swath mask
-        max_val = int(self.primitives.max_prim + self.max_ship_length)
+        max_val = int(self.primitives.max_prim + self.ship.max_ship_length)
         swath_size = raw_swath.shape[0]
         min_y = start_pos[1] - max_val
         max_y = start_pos[1] + max_val + 1
@@ -193,15 +190,15 @@ class AStar:
 
         return swath
 
-    # helper methods
-    @staticmethod
-    def heuristic(p_initial, p_final, turning_radius):
+    def heuristic(self, p_initial, p_final):
         """
         The Dubins' distance from initial to final points.
         """
-        p1 = (p_initial[0], p_initial[1], math.radians((p_initial[2] * 45 + 90) % 360))
-        p2 = (p_final[0], p_final[1], math.radians((p_final[2] * 45 + 90) % 360))
-        path = dubins.shortest_path(p1, p2, turning_radius)
+        theta_0 = heading_to_world_frame(p_initial[2], self.ship.initial_heading) % (2 * math.pi)
+        theta_1 = heading_to_world_frame(p_final[2], self.ship.initial_heading) % (2 * math.pi)
+        p1 = (p_initial[0], p_initial[1], theta_0)
+        p2 = (p_final[0], p_final[1], theta_1)
+        path = dubins.shortest_path(p1, p2, self.ship.turning_radius)
         return path.path_length()
 
     @staticmethod

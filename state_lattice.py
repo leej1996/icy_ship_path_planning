@@ -13,38 +13,42 @@ from skimage import draw
 from a_star_search import AStar
 from cost_map import CostMap
 from primitives import Primitives
+from ship import Ship
+from utils import heading_to_world_frame, plot_path
 
 
-def generate_swath(ship_vertices, edge_set, turning_radius, heading, prim):
-    '''
+def generate_swath(ship: Ship, edge_set: np.ndarray, heading: int, prim: Primitives) -> dict:
+    """
     Will have key of (edge, start heading)
-    '''
+    """
     swath_set = {}
     dist = lambda a, b: abs(a[0] - a[1])
     # why do we care about the max ship length from the centre of the ship?
-    max_ship_length = np.ceil(max(dist(a, b) for a in ship_vertices for b in ship_vertices)).astype(int)
+    max_ship_length = np.ceil(max(dist(a, b) for a in ship.vertices for b in ship.vertices)).astype(int)
     start_pos = [prim.max_prim + max_ship_length] * 2 + [heading]
 
     for e in edge_set:
         e = tuple(e)
         array = np.zeros([(prim.max_prim + max_ship_length) * 2 + 1] * 2, dtype=bool)
         translated_e = np.asarray(e) + np.array([start_pos[0], start_pos[1], 0])
-        dubins_path = dubins.shortest_path((start_pos[0], start_pos[1], math.radians((start_pos[2] + 2) * 45)),
-                                           (translated_e[0], translated_e[1],
-                                            math.radians((translated_e[2] + 2) * 45) % (2 * math.pi)),
-                                           turning_radius)
+
+        theta_0 = heading_to_world_frame(start_pos[2], ship.initial_heading)
+        theta_1 = heading_to_world_frame(translated_e[2], ship.initial_heading) % (2 * math.pi)
+        dubins_path = dubins.shortest_path((start_pos[0], start_pos[1], theta_0),
+                                           (translated_e[0], translated_e[1], theta_1),
+                                           ship.turning_radius)
 
         configurations, _ = dubins_path.sample_many(0.5)
 
         for config in configurations:
             x_cell = int(round(config[0]))
             y_cell = int(round(config[1]))
-            theta = config[2] - math.pi / 2
+            theta = config[2] - ship.initial_heading
             R = np.asarray([
                 [np.cos(theta), -np.sin(theta)],
                 [np.sin(theta), np.cos(theta)]
             ])
-            rot_vi = np.round(np.array([[x_cell], [y_cell]]) + R @ ship_vertices.T).astype(int)
+            rot_vi = np.round(np.array([[x_cell], [y_cell]]) + R @ ship.vertices.T).astype(int)
 
             rr, cc = draw.polygon(rot_vi[1, :], rot_vi[0, :])
             array[rr, cc] = True
@@ -57,82 +61,18 @@ def generate_swath(ship_vertices, edge_set, turning_radius, heading, prim):
     return swath_set
 
 
-def plot_path(path, cost_map, turn_radius):
-    x = []
-    y = []
-
-    for vi in path:
-        x.append(vi[0])
-        y.append(vi[1])
-    xmax = 0
-    ymax = 0
-    plt.imshow(cost_map, origin='lower')
-    for i in range(np.shape(path)[0] - 1):
-            P1 = path[i]
-            P2 = path[i + 1]
-            dubins_path = dubins.shortest_path((P1[0], P1[1], math.radians(P1[2] * 45 + 90) % (2 * math.pi)),
-                                               (P2[0], P2[1], math.radians(P2[2] * 45 + 90) % (2 * math.pi)),
-                                               turn_radius)
-            configurations, _ = dubins_path.sample_many(0.2)
-            x1 = list()
-            y1 = list()
-            for config in configurations:
-                x1.append(config[0])
-                y1.append(config[1])
-                if config[0] > xmax:
-                    xmax = config[0]
-                if config[1] > ymax:
-                    ymax = config[1]
-            plt.plot(x1, y1, 'g')
-
-    plt.plot(x, y, 'bx')
-    plt.show()
-
-
-def create_circle(space, x, y, r):
-    body = pymunk.Body()
-    body.position = (x, y)
-    shape = pymunk.Circle(body, r)
-    shape.density = 3
-    space.add(body, shape)
-    return shape
-
-
-class Ship:
-    def __init__(self, space, v, x, y, theta):
-        self.vertices = [(0, 2), (0.5, 1), (0.5, -1), (-0.5, -1), (-0.5, 1)]
-        self.body = pymunk.Body(1, 100, body_type=pymunk.Body.KINEMATIC)
-        self.body.position = (x, y)
-        self.body.velocity = v
-        self.body.angle = math.radians(theta)
-        self.shape = pymunk.Poly(self.body, self.vertices)
-        # self.shape = pymunk.Circle(self.body, 0.5)
-        space.add(self.body, self.shape)
-        self.path_pos = 0
-
-    def set_path_pos(self, path_pos):
-        self.path_pos = path_pos
-
-
-def calc_turn_radius(rate, speed):
-    '''
-    rate: deg/min
-    speed: knots
-    '''
-    theta = rate * math.pi / 180  # convert to rads
-    s = speed * 30.8667  # convert to m
-    turn_radius = s / theta
-    return turn_radius
-
-
 def main():
     # Resolution is 10 m
     n = 600
     m = 70
-    theta = 0  # Possible values: 0 - 7, each number should be multiplied by 45 degrees (measured CCW from up)
+    initial_heading = 2 * math.pi / 3
     turning_radius = 30  # 300 m turn radius
+    ship_vertices = np.array([[-1, 5],
+                              [1, 5],
+                              [1, -5],
+                              [-1, -5]])
     obstacle_penalty = 3
-    start_pos = (35, 10, theta)
+    start_pos = (35, 10, 0)  # (x, y, theta), possible values for theta 0 - 7 measured from ships positive x axis
     goal_pos = (35, 590, 0)
 
     # initialize costmap
@@ -142,33 +82,32 @@ def main():
     costmap_obj.generate_obstacles(start_pos, goal_pos, num_obs=160, min_r=1, max_r=10,
                                    upper_offset=200, lower_offset=20, allow_overlap=False)
 
-    # ship vertices
-    ship_vertices = np.array([[-1, 5],
-                              [1, 5],
-                              [1, -5],
-                              [-1, -5]])
+    # initialize ship object
+    ship = Ship(ship_vertices, start_pos, goal_pos, initial_heading, turning_radius)
 
-    # y is pointing up, x is pointing to the right
-    # must rotate all swaths pi/4 CCW to be facing up
-    prim = Primitives(scale=30, rotate=True)
+    # get the primitives
+    prim = Primitives(scale=30, initial_heading=initial_heading)
 
-    ordinal_swaths = generate_swath(ship_vertices, prim.edge_set_ordinal, turning_radius, 1, prim)
-    cardinal_swaths = generate_swath(ship_vertices, prim.edge_set_cardinal, turning_radius, 0, prim)
+    # generate swaths
+    ordinal_swaths = generate_swath(ship, prim.edge_set_ordinal, 1, prim)
+    cardinal_swaths = generate_swath(ship, prim.edge_set_cardinal, 0, prim)
 
     # initialize a star object
-    a_star = AStar(g_weight=0.5, h_weight=0.5, cmap=costmap_obj, primitives=prim, ship_vertices=ship_vertices)
+    a_star = AStar(g_weight=0.5, h_weight=0.5, cmap=costmap_obj,
+                   primitives=prim, ship=ship)
 
     t0 = time.clock()
     worked, orig_cost, smoothed_edge_path, nodes_visited, x1, y1, x2, y2, orig_path = \
-        a_star.search(start_pos, goal_pos, turning_radius, cardinal_swaths, ordinal_swaths)
+        a_star.search(start_pos, goal_pos, cardinal_swaths, ordinal_swaths)
 
     t1 = time.clock() - t0
     print("Time elapsed: ", t1)
     print("Hz", 1 / t1)
+    print("smoothed path", smoothed_edge_path)
 
     smoothed_cost = costmap_obj.compute_path_cost(path=smoothed_edge_path.copy(), reverse_path=True,
                                                   turning_radius=turning_radius, ship_vertices=ship_vertices)
-    # this should be the same as `original_cost` !!
+    # FIXME: this should be the same as `original_cost` !!
     recomputed_original_cost = costmap_obj.compute_path_cost(path=orig_path, reverse_path=False,
                                                              turning_radius=turning_radius, ship_vertices=ship_vertices)
     print("\nPath cost:\n\toriginal: {:.4f}\n\twith smoothing: {:.4f}\n".format(orig_cost, smoothed_cost))
@@ -176,18 +115,19 @@ def main():
     fig1, ax1 = plt.subplots(1, 2, figsize=(5, 10))
 
     # '''
+    # FIXME: why regenerate again, can't we just do this in the smoothing step????
     if worked:
         ax1[0].imshow(costmap_obj.cost_map, origin='lower')
-        xmax = 0
-        ymax = 0
-        PATH = [i for i in smoothed_edge_path[::-1]]
-        path = np.zeros((2, 1))
+        PATH = smoothed_edge_path[::-1]
+        path = np.zeros((2, 1))  # what is this used for?
 
         for i in range(np.shape(PATH)[0] - 1):
             P1 = PATH[i]
             P2 = PATH[i + 1]
-            dubins_path = dubins.shortest_path((P1[0], P1[1], math.radians(P1[2] * 45 + 90) % (2 * math.pi)),
-                                               (P2[0], P2[1], math.radians(P2[2] * 45 + 90) % (2 * math.pi)),
+            theta_0 = heading_to_world_frame(P1[2], initial_heading) % (2 * math.pi)
+            theta_1 = heading_to_world_frame(P2[2], initial_heading) % (2 * math.pi)
+            dubins_path = dubins.shortest_path((P1[0], P1[1], theta_0),
+                                               (P2[0], P2[1], theta_1),
                                                turning_radius - 1e-4)
             configurations, _ = dubins_path.sample_many(0.2)
             # 0.01
@@ -196,10 +136,6 @@ def main():
             for config in configurations:
                 x.append(config[0])
                 y.append(config[1])
-                if config[0] > xmax:
-                    xmax = config[0]
-                if config[1] > ymax:
-                    ymax = config[1]
             ax1[0].plot(x, y, 'g')
             path = np.append(path, np.array([np.asarray(x).T, np.asarray(y).T]), axis=1)
 
@@ -233,7 +169,6 @@ def main():
 
     space = pymunk.Space()
     space.gravity = (0, 0)
-    initial_vel = Vec2d(0, 0)
 
     circles = []
     patch_list = []

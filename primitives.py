@@ -5,8 +5,9 @@ import matplotlib.pyplot as plt
 
 
 class Primitives:
-    def __init__(self, scale=None, rotate=True):
+    def __init__(self, scale: float = None, initial_heading: float = None):
         self.scale = scale
+        self.initial_heading = initial_heading
         self.edge_set_cardinal = np.asarray([
             (1, 0, 0),
             (2, 1, 0),
@@ -54,19 +55,16 @@ class Primitives:
             self.edge_set_ordinal[:, :2] *= scale
             self.edge_set_cardinal[:, :2] *= scale
 
-        if rotate:
-            self.rotate()
-
+        self.rotate(theta=initial_heading)
         self.max_prim = self.get_max_prim()
 
     @staticmethod
-    def view(edge_set, save_fig_fp="primitives.png"):
+    def view(edge_set: np.ndarray, theta: float, save_fig_fp="primitives.png"):
         """ plots all the primitives in the edge point_set """
         # use an arrow to indicate node location and heading
         fig = plt.figure(figsize=(8, 4))
         arrow = partial(plt.arrow, head_width=0.2, width=0.05, ec="green")
 
-        theta = np.pi/2
         arrow_length = 0.2
         R = np.asarray([
             [np.cos(theta), -np.sin(theta)],
@@ -74,28 +72,37 @@ class Primitives:
         ])
         for item in edge_set:
             # compute the heading
-            heading = item[2] * np.pi/4
+            heading = item[2] * np.pi / 4
             xy = item[:2]
-            # we consider positive x to be in right direction and positive y to be in the up direction
             dxdy = (R @ np.asarray([np.cos(heading), np.sin(heading)])) * arrow_length
             arrow(x=xy[0], y=xy[1], dx=dxdy[0], dy=dxdy[1])
 
         plt.savefig(save_fig_fp)
         plt.show()
 
-    def rotate(self, theta=np.pi/2):
+    def rotate(self, theta: float):
         R = np.asarray([
             [np.cos(theta), -np.sin(theta), 0],
             [np.sin(theta), np.cos(theta), 0],
             [0, 0, 1]
         ])
 
-        self.edge_set_cardinal = np.round((self.edge_set_cardinal @ R.T)).astype(int)
-        self.edge_set_ordinal = np.round((self.edge_set_ordinal @ R.T)).astype(int)
+        self.edge_set_cardinal = self.edge_set_cardinal @ R.T
+        self.edge_set_ordinal = self.edge_set_ordinal @ R.T
 
     def get_max_prim(self):
         # compute the total space occupied by the primitives
         prims = np.concatenate((self.edge_set_ordinal, self.edge_set_cardinal))
         max_x, min_x = prims[:, 0].max(), prims[:, 0].min()
         max_y, min_y = prims[:, 1].max(), prims[:, 1].min()
-        return max(max_x, max_y, abs(min_x), abs(min_y))
+        return int(
+            round(max(max_x, max_y, abs(min_x), abs(min_y)))
+        )
+
+
+if __name__ == '__main__':
+    # for testing purposes
+    theta = np.pi/4
+    p = Primitives(initial_heading=theta)
+    print(p.edge_set_cardinal)
+    p.view(p.edge_set_cardinal, theta=theta)
