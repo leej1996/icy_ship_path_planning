@@ -2,17 +2,22 @@ import math
 from typing import Tuple, List
 
 import dubins
+import os
+import pickle
 import numpy as np
+from cost_map import CostMap
 from skimage import draw
 
 from ship import Ship
+from matplotlib import pyplot as plt
 from utils import heading_to_world_frame
+from utils import plot_path
 
 
-def path_smoothing(path: List, path_length: List, cost_map: np.ndarray, start: Tuple, goal: Tuple,
+def path_smoothing(path: List, path_length: List, cost_map: CostMap, start: Tuple, goal: Tuple,
                    ship: Ship, num_nodes: int, dist_cuttoff: int = 100, eps: float = 1e-4):  # epsilon handles small error from dubins package
     print("Attempt Smoothing")
-    chan_h, chan_w = np.shape(cost_map)
+    chan_h, chan_w = np.shape(cost_map.cost_map)
     total_length = np.sum(path_length)
     # probability is based on length between nodes (greater length = greater probability)
     probabilities = np.asarray(path_length) / total_length
@@ -23,6 +28,9 @@ def path_smoothing(path: List, path_length: List, cost_map: np.ndarray, start: T
         x.append(vi[0])
         y.append(vi[1])
 
+    fig, ax = plt.subplots(1,1)
+    plot_path(ax, path, cost_map.cost_map, ship)
+    plt.show()
     # determine between which current nodes on path nodes will be added based off previous probabilities
     # generates a list where each value is an index corresponding to a segment between two nodes on the path
     segments = np.sort(np.random.choice(np.arange(len(path)), num_nodes, p=probabilities))
@@ -90,14 +98,14 @@ def path_smoothing(path: List, path_length: List, cost_map: np.ndarray, start: T
                 break
 
             configurations, _ = dubins_path.sample_many(1.2)
-            swath = np.zeros_like(cost_map, dtype=bool)
+            swath = np.zeros_like(cost_map.cost_map, dtype=bool)
 
             # for each point sampled on dubins path, get x, y, theta
             for config in configurations:
                 x_cell = int(round(config[0]))
                 y_cell = int(round(config[1]))
-
                 theta = config[2] - ship.initial_heading
+
                 R = np.asarray([
                     [np.cos(theta), -np.sin(theta)],
                     [np.sin(theta), np.cos(theta)]
@@ -109,6 +117,7 @@ def path_smoothing(path: List, path_length: List, cost_map: np.ndarray, start: T
                 # check if any vertex of ship is outside of cost map (invalid path)
                 for v in rot_vi.T:
                     if not (0 <= v[0] < chan_w and 0 <= v[1] < chan_h):
+                        print("Out of bounds", v[0], v[1])
                         invalid = True
 
                 if invalid:
@@ -122,7 +131,7 @@ def path_smoothing(path: List, path_length: List, cost_map: np.ndarray, start: T
                 continue
 
             # determine smooth cost and compare to see if it is cheaper than cost from a different node
-            swath_cost = np.sum(cost_map[swath])
+            swath_cost = np.sum(cost_map.cost_map[swath])
             adj_cost = float(swath_cost + dubins_path.path_length())
             if smooth_cost[vi] + adj_cost < smooth_cost[vj]:
                 smooth_cost[vj] = smooth_cost[vi] + adj_cost
@@ -133,7 +142,17 @@ def path_smoothing(path: List, path_length: List, cost_map: np.ndarray, start: T
     node = goal
     while node != start:
         prior_node, node = node, prev[node]
-        assert prior_node[1] >= node[1], "sequential nodes should always move forward in the y direction"
+        print(node)
+        try:
+            assert prior_node[1] >= node[1], "sequential nodes should always move forward in the y direction"
+        except:
+            save_costmap_file = input("\n\nFile name to save out costmap (press enter to ignore)\n").lower()
+            if save_costmap_file:
+                fp = os.path.join("sample_costmaps", save_costmap_file + ".pk")
+                with open(fp, "wb") as fd:
+                    pickle.dump(cost_map, fd)
+                    print("Successfully saved costmap object to file path '{}'".format(fp))
+
         smooth_path.append(node)
 
     return smooth_path, x, y, added_x, added_y

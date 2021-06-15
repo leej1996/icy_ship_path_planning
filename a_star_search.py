@@ -83,7 +83,7 @@ class AStar:
                 orig_path = path.copy()
                 orig_cost = f_score[goal]
                 t0 = time.clock()
-                smooth_path, x1, y1, x2, y2 = path_smoothing(path, new_path_length, self.cmap.cost_map,
+                smooth_path, x1, y1, x2, y2 = path_smoothing(path, new_path_length, self.cmap,
                                                              start, goal, self.ship, add_nodes, dist_cuttoff=100)
                 t1 = time.clock() - t0
                 print("smooth time", t1)
@@ -105,7 +105,8 @@ class AStar:
                 neighbour = self.concat(node, e)
                 print("NEIGHBOUR",neighbour)
 
-                if 0 <= neighbour[0] < self.chan_w and 0 <= neighbour[1] < self.chan_h:
+                #if 0 <= neighbour[0] < self.chan_w and 0 <= neighbour[1] < self.chan_h:
+                if neighbour[0] - 4 >= 0 and neighbour[0] + 4 <= self.chan_w and neighbour[1] - 4 >= 0 and neighbour[1] + 4 < self.chan_h:
                     # check if point is in closed point_set
                     neighbour_in_closed_set, closed_set_neighbour = self.is_point_in_set(neighbour, closedSet)
                     if neighbour_in_closed_set:
@@ -115,6 +116,8 @@ class AStar:
                     if self.near_obstacle(node, self.cmap.cost_map.shape, self.cmap.obstacles,
                                           threshold=self.ship.max_ship_length * 3):
                         swath = self.get_swath(e, node, swath_set)
+                        if swath == "Fail":
+                            continue
                         mask = self.cmap.cost_map[swath]
                         swath_cost = np.sum(mask)
                     else:
@@ -172,28 +175,44 @@ class AStar:
         max_x = int(start_pos[0]) + max_val + 1
 
         # Too far to the right
+        invalid = False
         if max_x >= self.chan_w:
             overhang = max_x - (self.chan_w - 1)
+            remove = raw_swath[:,slice(swath_size - overhang, swath_size)]
+            if remove.sum() > 0:
+                invalid = True
             raw_swath = np.delete(raw_swath, slice(swath_size - overhang, swath_size), axis=1)
             max_x = self.chan_w - 1
         # Too far to the left
         if min_x < 0:
             overhang = abs(min_x)
+            remove = raw_swath[:,slice(0, overhang)]
+            if remove.sum() > 0:
+                invalid = True
             raw_swath = np.delete(raw_swath, slice(0, overhang), axis=1)
             min_x = 0
         # Too close to the top
         if max_y >= self.chan_h:
             overhang = max_y - (self.chan_h - 1)
+            remove = raw_swath[slice(swath_size - overhang, swath_size),:]
+            if remove.sum() > 0:
+                invalid = True
             raw_swath = np.delete(raw_swath, slice(swath_size - overhang, swath_size), axis=0)
             max_y = self.chan_h - 1
         # Too close to the bottom
         if min_y < 0:
             overhang = abs(min_y)
+            remove = raw_swath[slice(0, overhang),:]
+            if remove.sum() > 0:
+                invalid = True
             raw_swath = np.delete(raw_swath, slice(0, overhang), axis=0)
             min_y = 0
         swath[min_y:max_y, min_x:max_x] = raw_swath
 
-        return swath
+        if invalid:
+            return "Fail"
+        else:
+            return swath
 
     def heuristic(self, p_initial, p_final):
         """
