@@ -47,7 +47,7 @@ class AStar:
             print("NODE:", node)
 
             # If ship past all obstacles, calc direct dubins path to goal
-            if generation % free_path_interval == 0 and node != goal:
+            if generation % free_path_interval == 0 and not(self.dist(node, goal) < 0.):
                 past_all_obs = all(
                     self.past_obstacle(node, obs) for obs in self.cmap.obstacles
                 )
@@ -60,14 +60,15 @@ class AStar:
                     pred = goal
                     node = pred
 
-            if node == goal:
+            #if node == goal:
+            if self.dist(node, goal) < 0.001:
+                goal = node
                 print("Found path")
                 path = []
                 new_path_length = []
-                print("goal", goal)
-                cameFrom[goal] = cameFrom[node]
-                path.append(goal)
-                new_path_length.append(path_length[goal])
+                cameFrom[node] = cameFrom[node]
+                path.append(node)
+                new_path_length.append(path_length[node])
 
                 while node != start:
                     pred = cameFrom[node]
@@ -96,14 +97,16 @@ class AStar:
             if (node[2] * 45) % 90 == 0:
                 edge_set = self.primitives.edge_set_cardinal
                 swath_set = cardinal_swath
+                # print("CARDINAL")
             else:
                 edge_set = self.primitives.edge_set_ordinal
                 swath_set = ordinal_swath
+                # print("ORDINAL")
 
             for e in edge_set:
-                print("EDGE", e)
+                # print("EDGE", e)
                 neighbour = self.concat(node, e)
-                print("NEIGHBOUR",neighbour)
+                # print("NEIGHBOUR",neighbour)
 
                 #if 0 <= neighbour[0] < self.chan_w and 0 <= neighbour[1] < self.chan_h:
                 if neighbour[0] - 4 >= 0 and neighbour[0] + 4 <= self.chan_w and neighbour[1] - 4 >= 0 and neighbour[1] + 4 < self.chan_h:
@@ -126,7 +129,7 @@ class AStar:
                     temp_path_length = self.heuristic(node, neighbour)
                     cost = swath_cost + temp_path_length
                     temp_g_score = g_score[node] + cost
-                    print("cost", cost)
+                    # print("cost", cost)
 
                     if neighbour in openSet:
                         neighbour_in_open_set = True
@@ -157,6 +160,7 @@ class AStar:
                         f_score_open_sorted._update((open_set_neighbour, f_score[open_set_neighbour]), new_f_score)
                         f_score[open_set_neighbour] = new_f_score
             generation += 1
+        print("Fail")
         return False, 'Fail', 'Fail', 'Fail'
 
     # helper methods
@@ -239,6 +243,7 @@ class AStar:
         heading = p2_theta + rot
         if x[2] % 2 != 0:
             # ordinal
+            heading = heading - math.pi / 4
             rot = rot - math.pi / 4
 
         R = np.array([[math.cos(rot), -math.sin(rot)],

@@ -9,9 +9,7 @@ from cost_map import CostMap
 from skimage import draw
 
 from ship import Ship
-from matplotlib import pyplot as plt
 from utils import heading_to_world_frame
-from utils import plot_path
 
 
 def path_smoothing(path: List, path_length: List, cost_map: CostMap, start: Tuple, goal: Tuple,
@@ -28,9 +26,6 @@ def path_smoothing(path: List, path_length: List, cost_map: CostMap, start: Tupl
         x.append(vi[0])
         y.append(vi[1])
 
-    fig, ax = plt.subplots(1,1)
-    plot_path(ax, path, cost_map.cost_map, ship)
-    plt.show()
     # determine between which current nodes on path nodes will be added based off previous probabilities
     # generates a list where each value is an index corresponding to a segment between two nodes on the path
     segments = np.sort(np.random.choice(np.arange(len(path)), num_nodes, p=probabilities))
@@ -142,7 +137,6 @@ def path_smoothing(path: List, path_length: List, cost_map: CostMap, start: Tupl
     node = goal
     while node != start:
         prior_node, node = node, prev[node]
-        print(node)
         try:
             assert prior_node[1] >= node[1], "sequential nodes should always move forward in the y direction"
         except:

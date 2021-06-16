@@ -89,7 +89,7 @@ def main():
     # Resolution is 10 m
     n = 600
     m = 70
-    initial_heading = math.pi / 2 + 1e-1
+    initial_heading = math.pi / 2
     density = 3
     turning_radius = 30  # 300 m turn radius
     ship_vertices = np.array([[0, 4],
@@ -99,7 +99,7 @@ def main():
                               [-1, 3]])
     obstacle_penalty = 3
     start_pos = (35, 10, 0)  # (x, y, theta), possible values for theta 0 - 7 measured from ships positive x axis
-    goal_pos = (35, 590, 0)
+    goal_pos = (35, 580, 0)
 
     # load costmap object from file if specified
     if load_costmap_file:
