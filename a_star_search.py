@@ -23,7 +23,7 @@ class AStar:
         self.primitives = primitives
         self.ship = ship
 
-    def search(self, start: tuple, goal: tuple, cardinal_swath: dict, ordinal_swath: dict):
+    def search(self, start: tuple, goal: tuple, cardinal_swath: dict, ordinal_swath: dict, path_smooth: bool=True):
         free_path_interval = 1
         generation = 0  # number of nodes expanded
         print("start", start)
@@ -76,18 +76,30 @@ class AStar:
                     path.append(node)
                     new_path_length.append(path_length[node])
 
-                path.reverse()  # path: start -> goal
-                new_path_length.reverse()
-                print("path", path)
-                add_nodes = int(len(path))  # number of nodes to add in the path smoothing algorithm
 
                 orig_path = path.copy()
                 orig_cost = f_score[goal]
-                t0 = time.clock()
-                smooth_path, x1, y1, x2, y2 = path_smoothing(path, new_path_length, self.cmap,
-                                                             start, goal, self.ship, add_nodes, dist_cuttoff=100)
-                t1 = time.clock() - t0
-                print("smooth time", t1)
+
+                if path_smooth == True:
+                    path.reverse()  # path: start -> goal
+                    new_path_length.reverse()
+                    print("path", path)
+                    add_nodes = int(len(path))  # number of nodes to add in the path smoothing algorithm
+
+                    t0 = time.clock()
+                    smooth_path, x1, y1, x2, y2 = path_smoothing(path, new_path_length, self.cmap,
+                                                                 start, goal, self.ship, add_nodes, dist_cuttoff=100)
+                    t1 = time.clock() - t0
+                    print("smooth time", t1)
+                else:
+                    smooth_path = path
+                    x1 = []
+                    y1 = []
+                    x2 = 0
+                    y2 = 0
+                    for vi in path:
+                        x1.append(vi[0])
+                        y1.append(vi[1])
 
                 return True, orig_cost, smooth_path, closedSet, x1, y1, x2, y2, orig_path
 
