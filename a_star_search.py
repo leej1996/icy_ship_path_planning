@@ -47,6 +47,7 @@ class AStar:
             print("NODE:", node)
 
             # If ship past all obstacles, calc direct dubins path to goal
+            '''
             if generation % free_path_interval == 0 and not (self.dist(node, goal) < 0.):
                 past_all_obs = all(
                     self.past_obstacle(node, obs) for obs in self.cmap.obstacles
@@ -58,15 +59,16 @@ class AStar:
                     path_length[goal] = self.heuristic(node, goal)
                     f_score[goal] = g_score[node] + path_length[goal]
                     pred = goal
-                    node = pred
+                    node = pred            
+            '''
 
-            if self.dist(node, goal) < 0.001:
-                goal = node
+
+            if self.dist(node, goal) < 2 and node[2] == goal[2]:
                 print("Found path")
                 path = []
                 new_path_length = []
-                cameFrom[node] = cameFrom[node]
-                path.append(node)
+                cameFrom[goal] = cameFrom[node]
+                path.append(goal)
                 new_path_length.append(path_length[node])
 
                 while node != start:
@@ -76,7 +78,7 @@ class AStar:
                     new_path_length.append(path_length[node])
 
                 orig_path = path.copy()
-                orig_cost = f_score[goal]
+                orig_cost = f_score[node]
 
                 if path_smooth == True:
                     path.reverse()  # path: start -> goal

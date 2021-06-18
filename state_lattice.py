@@ -97,7 +97,7 @@ def main():
     obstacle_penalty = 3
     start_pos = (35, 10, 0)  # (x, y, theta), possible values for theta 0 - 7 measured from ships positive x axis
     goal_pos = (35, 580, 0)
-    smooth_path = False
+    smooth_path = True
 
     # load costmap object from file if specified
     if load_costmap_file:
