@@ -23,7 +23,7 @@ class AStar:
         self.primitives = primitives
         self.ship = ship
 
-    def search(self, start: tuple, goal: tuple, cardinal_swath: dict, ordinal_swath: dict, path_smooth: bool=True):
+    def search(self, start: tuple, goal: tuple, cardinal_swath: dict, ordinal_swath: dict, path_smooth: bool = True):
         free_path_interval = 1
         generation = 0  # number of nodes expanded
         print("start", start)
@@ -47,7 +47,7 @@ class AStar:
             print("NODE:", node)
 
             # If ship past all obstacles, calc direct dubins path to goal
-            if generation % free_path_interval == 0 and not(self.dist(node, goal) < 0.):
+            if generation % free_path_interval == 0 and not (self.dist(node, goal) < 0.):
                 past_all_obs = all(
                     self.past_obstacle(node, obs) for obs in self.cmap.obstacles
                 )
@@ -60,7 +60,6 @@ class AStar:
                     pred = goal
                     node = pred
 
-            #if node == goal:
             if self.dist(node, goal) < 0.001:
                 goal = node
                 print("Found path")
@@ -75,7 +74,6 @@ class AStar:
                     node = pred
                     path.append(node)
                     new_path_length.append(path_length[node])
-
 
                 orig_path = path.copy()
                 orig_cost = f_score[goal]
@@ -120,8 +118,10 @@ class AStar:
                 neighbour = self.concat(node, e)
                 # print("NEIGHBOUR",neighbour)
 
-                #if 0 <= neighbour[0] < self.chan_w and 0 <= neighbour[1] < self.chan_h:
-                if neighbour[0] - 4 >= 0 and neighbour[0] + 4 <= self.chan_w and neighbour[1] - 4 >= 0 and neighbour[1] + 4 < self.chan_h:
+                if neighbour[0] - self.ship.max_ship_length / 2 >= 0 and \
+                        neighbour[0] + self.ship.max_ship_length / 2 <= self.chan_w and \
+                        neighbour[1] - self.ship.max_ship_length / 2 >= 0 and \
+                        neighbour[1] + self.ship.max_ship_length / 2 < self.chan_h:
                     # check if point is in closed point_set
                     neighbour_in_closed_set, closed_set_neighbour = self.is_point_in_set(neighbour, closedSet)
                     if neighbour_in_closed_set:
@@ -131,7 +131,7 @@ class AStar:
                     if self.near_obstacle(node, self.cmap.cost_map.shape, self.cmap.obstacles,
                                           threshold=self.ship.max_ship_length * 3):
                         swath = self.get_swath(e, node, swath_set)
-                        if swath == "Fail":
+                        if type(swath) == str and swath == "Fail":
                             continue
                         mask = self.cmap.cost_map[swath]
                         swath_cost = np.sum(mask)
@@ -183,7 +183,7 @@ class AStar:
 
         # swath mask has starting node at the centre and want to put at the starting node of currently expanded node
         # in the cmap, need to remove the extra columns/rows of the swath mask
-        max_val = int(self.primitives.max_prim + self.ship.max_ship_length)
+        max_val = int(self.primitives.max_prim + self.ship.max_ship_length // 2)
         swath_size = raw_swath.shape[0]
         min_y = int(start_pos[1]) - max_val
         max_y = int(start_pos[1]) + max_val + 1
@@ -194,7 +194,7 @@ class AStar:
         invalid = False
         if max_x >= self.chan_w:
             overhang = max_x - (self.chan_w - 1)
-            remove = raw_swath[:,slice(swath_size - overhang, swath_size)]
+            remove = raw_swath[:, slice(swath_size - overhang, swath_size)]
             if remove.sum() > 0:
                 invalid = True
             raw_swath = np.delete(raw_swath, slice(swath_size - overhang, swath_size), axis=1)
@@ -202,7 +202,7 @@ class AStar:
         # Too far to the left
         if min_x < 0:
             overhang = abs(min_x)
-            remove = raw_swath[:,slice(0, overhang)]
+            remove = raw_swath[:, slice(0, overhang)]
             if remove.sum() > 0:
                 invalid = True
             raw_swath = np.delete(raw_swath, slice(0, overhang), axis=1)
@@ -210,7 +210,7 @@ class AStar:
         # Too close to the top
         if max_y >= self.chan_h:
             overhang = max_y - (self.chan_h - 1)
-            remove = raw_swath[slice(swath_size - overhang, swath_size),:]
+            remove = raw_swath[slice(swath_size - overhang, swath_size), :]
             if remove.sum() > 0:
                 invalid = True
             raw_swath = np.delete(raw_swath, slice(swath_size - overhang, swath_size), axis=0)
@@ -218,7 +218,7 @@ class AStar:
         # Too close to the bottom
         if min_y < 0:
             overhang = abs(min_y)
-            remove = raw_swath[slice(0, overhang),:]
+            remove = raw_swath[slice(0, overhang), :]
             if remove.sum() > 0:
                 invalid = True
             raw_swath = np.delete(raw_swath, slice(0, overhang), axis=0)

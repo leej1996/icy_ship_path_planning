@@ -14,7 +14,7 @@ class Ship:
         self.goal_pos = goal_pos
         self.initial_heading = initial_heading  # angle between ship and fixed coordinates on the map
         self.turning_radius = turning_radius
-        dist = lambda a, b: abs(a[0] - a[1])
+        dist = lambda a, b: np.sqrt((a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2)
         self.max_ship_length = np.ceil(max(dist(a, b) for a in vertices for b in vertices)).astype(int)
         assert self.max_ship_length != 0, 'ship length cannot be 0'
 

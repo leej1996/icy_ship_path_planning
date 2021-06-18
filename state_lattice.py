@@ -25,14 +25,11 @@ def generate_swath(ship: Ship, edge_set: np.ndarray, heading: int, prim: Primiti
     Will have key of (edge, start heading)
     """
     swath_set = {}
-    dist = lambda a, b: abs(a[0] - a[1])
-    # why do we care about the max ship length from the centre of the ship?
-    max_ship_length = np.ceil(max(dist(a, b) for a in ship.vertices for b in ship.vertices)).astype(int)
-    start_pos = [prim.max_prim + max_ship_length] * 2 + [heading]
+    start_pos = [prim.max_prim + ship.max_ship_length // 2] * 2 + [heading]
 
     for e in edge_set:
         e = tuple(e)
-        array = np.zeros([(prim.max_prim + max_ship_length) * 2 + 1] * 2, dtype=bool)
+        array = np.zeros([(prim.max_prim + ship.max_ship_length // 2) * 2 + 1] * 2, dtype=bool)
         translated_e = np.asarray(e) + np.array([start_pos[0], start_pos[1], 0])
 
         theta_0 = heading_to_world_frame(start_pos[2], ship.initial_heading)
@@ -64,15 +61,15 @@ def generate_swath(ship: Ship, edge_set: np.ndarray, heading: int, prim: Primiti
     return swath_set
 
 
-def create_polygon(space, staticBody, vertices, x,y, density):
+def create_polygon(space, staticBody, vertices, x, y, density):
     body = pymunk.Body()
-    body.position = (x,y)
+    body.position = (x, y)
     shape = pymunk.Poly(body, vertices)
     shape.density = density
     space.add(body, shape)
 
     # create pivot constraint to simulate linear friction
-    pivot = pymunk.constraints.PivotJoint(staticBody, body, (0,0))
+    pivot = pymunk.constraints.PivotJoint(staticBody, body, (0, 0))
     pivot.max_bias = 0
     pivot.max_force = 10000.0
 
