@@ -7,6 +7,7 @@ from typing import List, Tuple
 import cv2
 import dubins
 import numpy as np
+from pymunk import Poly
 from skimage import draw
 from matplotlib import patches
 import matplotlib.pyplot as plt
@@ -255,7 +256,29 @@ class CostMap:
 
         return total_path_cost, total_path_length
 
-    def save_to_disk(self):
+    def update(self, obstacles: List[Poly]) -> None:
+        # clear costmap and obstacles
+        self.cost_map[:] = 0
+        self.obstacles = []
+        # apply a cost to the boundaries of the channel
+        self.boundary_cost()
+
+        # update obstacles based on new positions
+        for obs in obstacles:
+            poly_vertices = np.asarray(
+                [v.rotated(obs.body.angle) + obs.body.position for v in obs.get_vertices()]
+            ).astype(int)
+
+            # compute the cost and update the costmap
+            if self.populate_costmap(centre_coords=list(obs.body.position), radius=obs.radius, polygon=poly_vertices):
+                # add the polygon to obstacles list if it is feasible
+                self.obstacles.append({
+                    'vertices': poly_vertices,
+                    'centre': list(obs.body.position),
+                    'radius': obs.radius
+                })
+
+    def save_to_disk(self) -> None:
         save_costmap_file = input("\n\nFile name to save out costmap (press enter to ignore)\n").lower()
         if save_costmap_file:
             fp = os.path.join("sample_costmaps", save_costmap_file + ".pk")

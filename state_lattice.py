@@ -108,10 +108,10 @@ def snap_to_lattice(start_pos, goal_pos, initial_heading, turning_radius):
     return goal_pos
 
 
-def create_polygon(space, staticBody, vertices, x, y, density):
+def create_polygon(space, staticBody, vertices, x, y, density, radius):
     body = pymunk.Body()
     body.position = (x, y)
-    shape = pymunk.Poly(body, vertices)
+    shape = pymunk.Poly(body, vertices, radius=radius)
     shape.density = density
     space.add(body, shape)
 
@@ -285,7 +285,10 @@ def main():
     # TODO: update pymunk stuff
     print("GENERATE OBSTACLES")
     for obs in costmap_obj.obstacles:
-        polygons.append(create_polygon(space, staticBody, (obs['vertices'] - np.array(obs['centre'])).tolist(), *obs['centre'], density))
+        polygons.append(
+            create_polygon(space, staticBody, (obs['vertices'] - np.array(obs['centre'])).tolist(),
+                           *obs['centre'], density, obs['radius'])
+        )
         patch_list.append(patches.Polygon(obs['vertices'], True))
 
     path = path.T
