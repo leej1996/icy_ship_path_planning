@@ -12,6 +12,7 @@ from matplotlib import patches
 from matplotlib import pyplot as plt
 from pymunk.vec2d import Vec2d
 from skimage import draw
+from skimage import transform
 
 from a_star_search import AStar
 from cost_map import CostMap
@@ -74,8 +75,8 @@ def snap_to_lattice(start_pos, goal_pos, initial_heading, turning_radius):
     diff_x = difference[0][0] % turning_radius
 
     # determine difference in heading
-    abs_init_heading = heading_to_world_frame(start_pos[2], math.pi / 2 + initial_heading)
-    abs_goal_heading = heading_to_world_frame(goal_pos[2], math.pi / 2)
+    abs_init_heading = heading_to_world_frame(start_pos[2], initial_heading)
+    abs_goal_heading = heading_to_world_frame(goal_pos[2], initial_heading)
     diff = abs_goal_heading - abs_init_heading
 
     if diff < 0:
@@ -99,6 +100,8 @@ def snap_to_lattice(start_pos, goal_pos, initial_heading, turning_radius):
 
         # round to nearest cardinal/ordinal direction
         new_theta = round(diff / (math.pi / 4))
+        if new_theta > 7:
+            new_theta = new_theta - 8
 
         # rotate coordinates back to original frame
         new_goal = np.array([[new_goal_x], [new_goal_y]])
@@ -144,6 +147,7 @@ def main():
     obstacle_penalty = 3
     start_pos = (20, 10, 0)  # (x, y, theta), possible values for theta 0 - 7 measured from ships positive x axis
     goal_pos = (20, 280, math.pi / 2 - initial_heading)
+    print("GOAL", goal_pos)
     smooth_path = False
 
     # load costmap object from file if specified
@@ -167,6 +171,10 @@ def main():
     # generate swaths
     ordinal_swaths = generate_swath(ship, prim.edge_set_ordinal, 1, prim)
     cardinal_swaths = generate_swath(ship, prim.edge_set_cardinal, 0, prim)
+
+    # test_image = transform.rotate(ordinal_swaths[tuple(prim.edge_set_ordinal[0]), 1], -10)
+    # plt.imshow(test_image, origin='lower')
+    # plt.show()
 
     # initialize a star object
     a_star = AStar(g_weight=0.1, h_weight=0.9, cmap=costmap_obj,
@@ -330,6 +338,8 @@ def main():
             direction = -abs(raw) / raw
         angular_vel[i] = direction * turn * 30
 
+
+
     fig2 = plt.figure()
     ax2 = plt.axes(xlim=(0, m), ylim=(0, n))
     ax2.set_aspect("equal")
@@ -347,6 +357,53 @@ def main():
             space.step(2 / 100 / 10)
 
         ship_pos = (ship.body.position.x, ship.body.position.y)
+
+        # '''
+        if (dt % 50  == 0):
+            curr_pos = (ship_pos[0], ship_pos[1], ship.body.angle)
+            snapped_goal = snap_to_lattice(curr_pos, goal_pos, ship.body.angle, turning_radius)
+            curr_pos = (ship_pos[0], ship_pos[1], 0)  # straight ahead of boat is 0
+
+            print("hey")
+            copy_ord_edges = prim.edge_set_ordinal.copy()
+            copy_card_edges = prim.edge_set_cardinal.copy()
+
+            prim.rotate(ship.body.angle)
+
+            for old_e, e in zip(copy_ord_edges, prim.edge_set_ordinal):
+                # print(old_e, e)
+                ordinal_swaths[tuple(e), 1] = ordinal_swaths[tuple(old_e), 1]
+                del ordinal_swaths[tuple(old_e), 1]
+                ordinal_swaths[tuple(e), 3] = ordinal_swaths[tuple(old_e), 3]
+                del ordinal_swaths[tuple(old_e), 3]
+                ordinal_swaths[tuple(e), 5] = ordinal_swaths[tuple(old_e), 5]
+                del ordinal_swaths[tuple(old_e), 5]
+                ordinal_swaths[tuple(e), 7] = ordinal_swaths[tuple(old_e), 7]
+                del ordinal_swaths[tuple(old_e), 7]
+
+            print("hello")
+            for old_e, e in zip(copy_card_edges, prim.edge_set_cardinal):
+                cardinal_swaths[tuple(e), 0] = cardinal_swaths[tuple(old_e), 0]
+                del cardinal_swaths[tuple(old_e), 0]
+                cardinal_swaths[tuple(e), 2] = cardinal_swaths[tuple(old_e), 2]
+                del cardinal_swaths[tuple(old_e), 2]
+                cardinal_swaths[tuple(e), 4] = cardinal_swaths[tuple(old_e), 4]
+                del cardinal_swaths[tuple(old_e), 4]
+                cardinal_swaths[tuple(e), 6] = cardinal_swaths[tuple(old_e), 6]
+                del cardinal_swaths[tuple(old_e), 6]
+
+            ship.initial_heading = ship.body.angle + math.pi / 2
+            print("INITIAL HEADING", ship.initial_heading)
+            print("ANGLE", ship.body.angle)
+            print("NEW GOAL", snapped_goal)
+            #t0 = time.clock()
+            worked, smoothed_edge_path, nodes_visited, x1, y1, x2, y2, orig_path = \
+            a_star.search(curr_pos, snapped_goal, cardinal_swaths, ordinal_swaths, smooth_path)
+            #t1 = time.clock() - t0
+            if worked:
+                print("Replanned Path")
+        # '''
+
         # determine which part of the path ship is on and get translational/angular velocity for ship
         if ship.path_pos < np.shape(vel_path)[0]:
             ship.body.velocity = Vec2d(vel_path[ship.path_pos, 0], vel_path[ship.path_pos, 1])

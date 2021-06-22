@@ -8,6 +8,7 @@ from cost_map import CostMap
 from path_smoothing import path_smoothing
 from primitives import Primitives
 from priority_queue import CustomPriorityQueue
+from skimage import transform
 from ship import Ship
 from utils import heading_to_world_frame
 
@@ -43,8 +44,8 @@ class AStar:
 
         while len(openSet) != 0:
             node = f_score_open_sorted.get()[0]
-            # print("GENERATION", generation)
-            # print("NODE:", node)
+            print("GENERATION", generation)
+            print("NODE:", node)
 
             # If ship past all obstacles, calc direct dubins path to goal
             '''
@@ -117,10 +118,10 @@ class AStar:
                 swath_set = ordinal_swath
                 # print("ORDINAL")
 
-            for e in edge_set:
-                # print("EDGE", e)
+            for e in edge_set: #
+                print("EDGE", e)
                 neighbour = self.concat(node, e)
-                # print("NEIGHBOUR",neighbour)
+                print("NEIGHBOUR",neighbour)
 
                 if neighbour[0] - self.ship.max_ship_length / 2 >= 0 and \
                         neighbour[0] + self.ship.max_ship_length / 2 <= self.chan_w and \
@@ -177,13 +178,15 @@ class AStar:
                         f_score[open_set_neighbour] = new_f_score
             generation += 1
         print("Fail")
-        return False, 'Fail', 'Fail', 'Fail'
+        return False, 'Fail', 'Fail', 'Fail', 'Fail', 'Fail', 'Fail', 'Fail'
 
     # helper methods
     def get_swath(self, e, start_pos, swath_set):
         swath = np.zeros_like(self.cmap.cost_map, dtype=bool)
         heading = int(start_pos[2])
-        raw_swath = swath_set[tuple(e), heading]
+        print(- ((math.pi/2 - self.ship.initial_heading) * (180 / math.pi)))
+        raw_swath = transform.rotate(swath_set[tuple(e), heading], - ((math.pi/2 - self.ship.initial_heading) * (180 / math.pi)))
+        print("got through")
 
         # swath mask has starting node at the centre and want to put at the starting node of currently expanded node
         # in the cmap, need to remove the extra columns/rows of the swath mask
@@ -229,6 +232,7 @@ class AStar:
             min_y = 0
         swath[min_y:max_y, min_x:max_x] = raw_swath
 
+        print("Hello")
         if invalid:
             return "Fail"
         else:
