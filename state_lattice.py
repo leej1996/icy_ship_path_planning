@@ -131,20 +131,20 @@ def create_polygon(space, staticBody, vertices, x, y, density):
 def main():
     load_costmap_file = ""  # "sample_costmaps/random_obstacles_1.pk"
     # Resolution is 10 m
-    n = 600
-    m = 70
+    n = 300
+    m = 40
     initial_heading = math.pi / 2
     density = 3
-    turning_radius = 30  # 300 m turn radius
+    turning_radius = 8  # 300 m turn radius
     ship_vertices = np.array([[0, 4],
                               [1, 3],
                               [1, -4],
                               [-1, -4],
                               [-1, 3]])
     obstacle_penalty = 3
-    start_pos = (35, 10, 0)  # (x, y, theta), possible values for theta 0 - 7 measured from ships positive x axis
-    goal_pos = (35, 580, math.pi / 2 - initial_heading)
-    smooth_path = True
+    start_pos = (20, 10, 0)  # (x, y, theta), possible values for theta 0 - 7 measured from ships positive x axis
+    goal_pos = (20, 280, math.pi / 2 - initial_heading)
+    smooth_path = False
 
     # load costmap object from file if specified
     if load_costmap_file:
@@ -155,21 +155,21 @@ def main():
         costmap_obj = CostMap(n, m, obstacle_penalty)
 
         # generate random obstacles
-        costmap_obj.generate_obstacles(start_pos, goal_pos, num_obs=160, min_r=1, max_r=10,
-                                       upper_offset=200, lower_offset=20, allow_overlap=False)
+        costmap_obj.generate_obstacles(start_pos, goal_pos, num_obs=130, min_r=1, max_r=8,
+                                       upper_offset=20, lower_offset=20, allow_overlap=False)
 
     # initialize ship object
     ship = Ship(ship_vertices, start_pos, goal_pos, initial_heading, turning_radius)
-
+    print("TURN RADIUS", ship.calc_turn_radius(45, 2))
     # get the primitives
-    prim = Primitives(scale=30, initial_heading=initial_heading)
+    prim = Primitives(scale=turning_radius, initial_heading=initial_heading)
 
     # generate swaths
     ordinal_swaths = generate_swath(ship, prim.edge_set_ordinal, 1, prim)
     cardinal_swaths = generate_swath(ship, prim.edge_set_cardinal, 0, prim)
 
     # initialize a star object
-    a_star = AStar(g_weight=0.5, h_weight=0.5, cmap=costmap_obj,
+    a_star = AStar(g_weight=0.1, h_weight=0.9, cmap=costmap_obj,
                    primitives=prim, ship=ship)
 
     t0 = time.clock()
@@ -224,7 +224,7 @@ def main():
                 x.append(config[0])
                 y.append(config[1])
 
-            if not smooth_path:  # only want to show primitives on un smoothed path
+            if not smooth_path and False:  # only want to show primitives on un smoothed path
                 if (P1[2] * 45) % 90 == 0:
                     edge_set = prim.edge_set_cardinal
                 else:
@@ -344,9 +344,6 @@ def main():
             space.step(2 / 100 / 10)
 
         ship_pos = (ship.body.position.x, ship.body.position.y)
-        # print("path_node:", ship.path_pos, sep=" ")
-        # print("ship pos:", ship_pos, sep=" ")
-        # print("path pos:", path[ship.path_pos, :], sep=" ")
         # determine which part of the path ship is on and get translational/angular velocity for ship
         if ship.path_pos < np.shape(vel_path)[0]:
             ship.body.velocity = Vec2d(vel_path[ship.path_pos, 0], vel_path[ship.path_pos, 1])

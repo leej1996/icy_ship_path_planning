@@ -43,8 +43,8 @@ class AStar:
 
         while len(openSet) != 0:
             node = f_score_open_sorted.get()[0]
-            print("GENERATION", generation)
-            print("NODE:", node)
+            # print("GENERATION", generation)
+            # print("NODE:", node)
 
             # If ship past all obstacles, calc direct dubins path to goal
             '''
@@ -63,7 +63,7 @@ class AStar:
             '''
 
 
-            if self.dist(node, goal) < 2 and node[2] == goal[2]:
+            if self.dist(node, goal) < 3 and abs(node[2] - goal[2]) < 0.01:
                 print("Found path")
                 path = []
                 new_path_length = []
@@ -85,9 +85,12 @@ class AStar:
                     print("path", path)
                     add_nodes = int(len(path))  # number of nodes to add in the path smoothing algorithm
 
+                    # cap at adding 10 nodes to reduce run time
+                    if add_nodes > 10:
+                        add_nodes = 10
                     t0 = time.clock()
                     smooth_path, x1, y1, x2, y2 = path_smoothing(path, new_path_length, self.cmap,
-                                                                 start, goal, self.ship, add_nodes, dist_cuttoff=100)
+                                                                 start, goal, self.ship, add_nodes, dist_cuttoff=30)
                     t1 = time.clock() - t0
                     print("smooth time", t1)
                 else:
@@ -268,7 +271,7 @@ class AStar:
         while heading >= 2 * math.pi:
             heading = heading - 2 * math.pi
         heading = heading / (math.pi / 4)
-        assert abs(heading - int(heading)) < 1e-4, "heading '{:4f}' should be an integer between 0-7".format(heading)
+        #assert abs(heading - int(heading)) < 1e-4, "heading '{:4f}' should be an integer between 0-7".format(heading)
 
         return result[0], result[1], int(heading)
 
