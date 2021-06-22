@@ -78,7 +78,6 @@ class AStar:
                     new_path_length.append(path_length[node])
 
                 orig_path = path.copy()
-                orig_cost = f_score[node]
 
                 if path_smooth == True:
                     path.reverse()  # path: start -> goal
@@ -101,7 +100,7 @@ class AStar:
                         x1.append(vi[0])
                         y1.append(vi[1])
 
-                return True, orig_cost, smooth_path, closedSet, x1, y1, x2, y2, orig_path
+                return True, smooth_path, closedSet, x1, y1, x2, y2, orig_path
 
             openSet.pop(node)
             closedSet.append(node)

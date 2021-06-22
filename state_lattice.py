@@ -96,7 +96,7 @@ def main():
                               [-1, 3]])
     obstacle_penalty = 3
     start_pos = (35, 10, 0)  # (x, y, theta), possible values for theta 0 - 7 measured from ships positive x axis
-    goal_pos = (35, 580, 0)
+    goal_pos = (35, 580, math.pi / 2 - initial_heading)
     smooth_path = True
 
     # load costmap object from file if specified
@@ -126,7 +126,7 @@ def main():
                    primitives=prim, ship=ship)
 
     t0 = time.clock()
-    worked, orig_cost, smoothed_edge_path, nodes_visited, x1, y1, x2, y2, orig_path = \
+    worked, smoothed_edge_path, nodes_visited, x1, y1, x2, y2, orig_path = \
         a_star.search(start_pos, goal_pos, cardinal_swaths, ordinal_swaths, smooth_path)
 
     t1 = time.clock() - t0
@@ -134,12 +134,23 @@ def main():
     print("Hz", 1 / t1)
     print("smoothed path", smoothed_edge_path)
 
-    smoothed_cost = costmap_obj.compute_path_cost(path=smoothed_edge_path.copy(), reverse_path=True,
-                                                  turning_radius=turning_radius, ship_vertices=ship_vertices)
-    # FIXME: this should be the same as `original_cost` !!
-    recomputed_original_cost = costmap_obj.compute_path_cost(path=orig_path, reverse_path=False,
-                                                             turning_radius=turning_radius, ship_vertices=ship_vertices)
-    print("\nPath cost:\n\toriginal: {:.4f}\n\twith smoothing: {:.4f}\n".format(orig_cost, smoothed_cost))
+    recomputed_original_cost, og_length = costmap_obj.compute_path_cost(path=orig_path, ship=ship, reverse_path=True)
+    smoothed_cost, smooth_length = costmap_obj.compute_path_cost(path=smoothed_edge_path.copy(), ship=ship, reverse_path=True)
+    straight_path_cost, straight_length = costmap_obj.compute_path_cost(path=[start_pos, goal_pos], ship=ship)
+    print("\nPath cost:"
+          "\n\toriginal path:  {:.4f}"
+          "\n\twith smoothing: {:.4f}"
+          "\n\tstraight path:  {:.4f}\n".format(recomputed_original_cost, smoothed_cost, straight_path_cost))
+    print("\nPath length:"
+          "\n\toriginal path:  {:.4f}"
+          "\n\twith smoothing: {:.4f}"
+          "\n\tstraight path:  {:.4f}\n".format(og_length, smooth_length, straight_length))
+    try:
+        assert smoothed_cost <= recomputed_original_cost <= straight_path_cost,\
+            "smoothed cost should be less than original cost and original cost should be less than straight cost"
+    except AssertionError as error:
+        print(error)
+        costmap_obj.save_to_disk()
 
     fig1, ax1 = plt.subplots(1, 2, figsize=(5, 10))
 
@@ -329,12 +340,7 @@ def main():
     plt.show()
 
     # get response from user for saving costmap
-    save_costmap_file = input("\n\nFile name to save out costmap (press enter to ignore)\n").lower()
-    if save_costmap_file:
-        fp = os.path.join("sample_costmaps", save_costmap_file + ".pk")
-        with open(fp, "wb") as fd:
-            pickle.dump(costmap_obj, fd)
-            print("Successfully saved costmap object to file path '{}'".format(fp))
+    costmap_obj.save_to_disk()
 
 
 if __name__ == "__main__":

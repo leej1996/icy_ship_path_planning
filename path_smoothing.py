@@ -139,13 +139,9 @@ def path_smoothing(path: List, path_length: List, cost_map: CostMap, start: Tupl
         prior_node, node = node, prev[node]
         try:
             assert prior_node[1] >= node[1], "sequential nodes should always move forward in the y direction"
-        except:
-            save_costmap_file = input("\n\nFile name to save out costmap (press enter to ignore)\n").lower()
-            if save_costmap_file:
-                fp = os.path.join("sample_costmaps", save_costmap_file + ".pk")
-                with open(fp, "wb") as fd:
-                    pickle.dump(cost_map, fd)
-                    print("Successfully saved costmap object to file path '{}'".format(fp))
+        except AssertionError as error:
+            print(error)
+            cost_map.save_to_disk()
 
         smooth_path.append(node)
 
