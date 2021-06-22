@@ -61,6 +61,53 @@ def generate_swath(ship: Ship, edge_set: np.ndarray, heading: int, prim: Primiti
     return swath_set
 
 
+def snap_to_lattice(start_pos, goal_pos, initial_heading, turning_radius):
+    # Rotate goal to lattice coordinate system
+    R = np.asarray([
+        [np.cos(initial_heading), -np.sin(initial_heading)],
+        [np.sin(initial_heading), np.cos(initial_heading)]
+    ])
+
+    # determine how far from lattice the goal position is
+    difference = R @ np.array([[goal_pos[0] - start_pos[0]], [goal_pos[1] - start_pos[1]]])
+    diff_y = difference[1][0] % turning_radius
+    diff_x = difference[0][0] % turning_radius
+
+    # determine difference in heading
+    abs_init_heading = heading_to_world_frame(start_pos[2], math.pi / 2 + initial_heading)
+    abs_goal_heading = heading_to_world_frame(goal_pos[2], math.pi / 2)
+    diff = abs_goal_heading - abs_init_heading
+
+    if diff < 0:
+        diff = diff + (2 * math.pi)
+
+    # check if x,y coordinates or heading are off lattice
+    if diff_y != 0 or diff_x != 0 or diff % (math.pi / 4) != 0:
+        if diff_y >= turning_radius / 2:
+            new_goal_y = difference[1][0] + turning_radius - diff_y
+        elif diff_y == 0:
+            new_goal_y = difference[1][0]  # no change
+        else:
+            new_goal_y = difference[1][0] - diff_y
+
+        if diff_x >= turning_radius / 2:
+            new_goal_x = difference[0][0] + turning_radius - diff_x
+        elif diff_x == 0:
+            new_goal_x = difference[0][0]
+        else:
+            new_goal_x = difference[0][0] - diff_x
+
+        # round to nearest cardinal/ordinal direction
+        new_theta = round(diff / (math.pi / 4))
+
+        # rotate coordinates back to original frame
+        new_goal = np.array([[new_goal_x], [new_goal_y]])
+        new_goal = R.T @ new_goal
+        goal_pos = (new_goal[0][0] + start_pos[0], new_goal[1][0] + start_pos[1], new_theta)
+
+    return goal_pos
+
+
 def create_polygon(space, staticBody, vertices, x, y, density):
     body = pymunk.Body()
     body.position = (x, y)
