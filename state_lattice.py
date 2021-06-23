@@ -217,7 +217,7 @@ def plot_path(fig1, costmap_obj, smoothed_edge_path, initial_heading, turning_ra
 
     path = np.delete(path, 0, 1)
 
-    for obs in costmap_obj.grouped_obstacles:
+    for obs in costmap_obj.obstacles:
         ax1[0].add_patch(patches.Polygon(obs['vertices'], True, fill=False))
     ax1[0].plot(x1, y1, 'bx')
     ax1[0].plot(x2, y2, 'gx')
