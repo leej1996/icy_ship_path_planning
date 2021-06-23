@@ -172,7 +172,9 @@ def generate_path_traj(path):
     return(vel_path, angular_vel)
 
 
-def plot_path(ax1, costmap_obj, smoothed_edge_path, initial_heading, turning_radius, smooth_path, prim, x1, x2, y1, y2):
+def plot_path(fig1, costmap_obj, smoothed_edge_path, initial_heading, turning_radius, smooth_path, prim, x1, x2, y1, y2, node_plot, nodes_visited):
+    plt.close(fig1)
+    fig1, ax1 = plt.subplots(1, 2, figsize=(5, 10))
     ax1[0].imshow(costmap_obj.cost_map, origin='lower')
     PATH = smoothed_edge_path[::-1]
     path = np.zeros((2, 1))  # what is this used for?
@@ -219,7 +221,13 @@ def plot_path(ax1, costmap_obj, smoothed_edge_path, initial_heading, turning_rad
         ax1[0].add_patch(patches.Polygon(obs['vertices'], True, fill=False))
     ax1[0].plot(x1, y1, 'bx')
     ax1[0].plot(x2, y2, 'gx')
-    return path
+
+    for node in nodes_visited:
+        r, c = int(round(node[1])), int(round(node[0]))
+        node_plot[r, c] = node_plot[r, c] + 1
+
+    ax1[1].imshow(node_plot, origin='lower')
+    return fig1, path, node_plot
 
 
 def main():
@@ -303,19 +311,20 @@ def main():
 
     # '''
     # FIXME: why regenerate again, can't we just do this in the smoothing step????
+    node_plot = np.zeros((n, m))
     if worked:
-        path = plot_path(ax1, costmap_obj, smoothed_edge_path, initial_heading, turning_radius, smooth_path, prim, x1, x2, y1, y2)
+        fig1, path, node_plot = plot_path(fig1, costmap_obj, smoothed_edge_path, initial_heading, turning_radius, smooth_path, prim, x1, x2, y1, y2, node_plot, nodes_visited)
     else:
         path = 0
 
+    '''
     node_plot = np.zeros((n, m))
-    print("nodes visited")
     for node in nodes_visited:
         r, c = int(round(node[1])), int(round(node[0]))
         node_plot[r, c] = node_plot[r, c] + 1
-
-    ax1[1].imshow(node_plot, origin='lower')
+            ax1[1].imshow(node_plot, origin='lower')
     print("Num of nodes expanded", np.sum(node_plot))
+    '''
 
     space = pymunk.Space()
     space.add(ship.body, ship.shape)
@@ -359,8 +368,8 @@ def main():
             ax2.add_patch(patch)
         return []
 
-    def animate(dt, ship_patch, ship, polygons, patch_list, vel_list, ang_vel_list, path):
-        print(dt)
+    def animate(dt, ship_patch, ship, polygons, patch_list, vel_list, ang_vel_list, path, fig1):
+        # print(dt)
         # 20 ms step size
         for x in range(10):
             space.step(2 / 100 / 10)
@@ -418,11 +427,15 @@ def main():
                 print(np.shape(vel_path))
                 ship.set_path_pos(0)               
                 '''
+                costmap_obj.update(polygons)
+                node_plot = np.zeros((n, m))
+                fig1, _, node_plot = plot_path(fig1, costmap_obj, smoothed_edge_path, initial_heading, turning_radius, smooth_path, prim, x1, x2, y1, y2, node_plot, nodes_visited)
+                plt.show(block=False)
+                # print("got out")
         # '''
 
         # determine which part of the path ship is on and get translational/angular velocity for ship
         if ship.path_pos < np.shape(vel_list)[0]:
-            print("yello")
             ship.body.velocity = Vec2d(vel_list[ship.path_pos, 0], vel_list[ship.path_pos, 1])
             ship.body.angular_velocity = ang_vel_list[ship.path_pos]
             if a_star.dist(ship_pos, path[ship.path_pos, :]) < 0.01:
@@ -453,7 +466,7 @@ def main():
                                    animate,
                                    init_func=init,
                                    frames=frames,
-                                   fargs=(ship_patch, ship, polygons, patch_list, vel_path, angular_vel, path,),
+                                   fargs=(ship_patch, ship, polygons, patch_list, vel_path, angular_vel, path, fig1,),
                                    interval=20,
                                    blit=True,
                                    repeat=False)
