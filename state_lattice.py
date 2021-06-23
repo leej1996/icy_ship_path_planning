@@ -364,7 +364,6 @@ def main():
             snapped_goal = snap_to_lattice(curr_pos, goal_pos, ship.body.angle, turning_radius)
             curr_pos = (ship_pos[0], ship_pos[1], 0)  # straight ahead of boat is 0
 
-            print("hey")
             copy_ord_edges = prim.edge_set_ordinal.copy()
             copy_card_edges = prim.edge_set_cardinal.copy()
 
@@ -381,7 +380,6 @@ def main():
                 ordinal_swaths[tuple(e), 7] = ordinal_swaths[tuple(old_e), 7]
                 del ordinal_swaths[tuple(old_e), 7]
 
-            print("hello")
             for old_e, e in zip(copy_card_edges, prim.edge_set_cardinal):
                 cardinal_swaths[tuple(e), 0] = cardinal_swaths[tuple(old_e), 0]
                 del cardinal_swaths[tuple(old_e), 0]
@@ -396,10 +394,12 @@ def main():
             print("INITIAL HEADING", ship.initial_heading)
             print("ANGLE", ship.body.angle)
             print("NEW GOAL", snapped_goal)
-            #t0 = time.clock()
+            print("NEW START", curr_pos)
+            t0 = time.clock()
             worked, smoothed_edge_path, nodes_visited, x1, y1, x2, y2, orig_path = \
             a_star.search(curr_pos, snapped_goal, cardinal_swaths, ordinal_swaths, smooth_path)
-            #t1 = time.clock() - t0
+            t1 = time.clock() - t0
+            print("PLAN TIME", t1)
             if worked:
                 print("Replanned Path")
         # '''

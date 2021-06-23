@@ -119,9 +119,9 @@ class AStar:
                 # print("ORDINAL")
 
             for e in edge_set: #
-                print("EDGE", e)
+                # print("EDGE", e)
                 neighbour = self.concat(node, e)
-                print("NEIGHBOUR",neighbour)
+                # print("NEIGHBOUR",neighbour)
 
                 if neighbour[0] - self.ship.max_ship_length / 2 >= 0 and \
                         neighbour[0] + self.ship.max_ship_length / 2 <= self.chan_w and \
@@ -184,9 +184,8 @@ class AStar:
     def get_swath(self, e, start_pos, swath_set):
         swath = np.zeros_like(self.cmap.cost_map, dtype=bool)
         heading = int(start_pos[2])
-        print(- ((math.pi/2 - self.ship.initial_heading) * (180 / math.pi)))
+        # print(- ((math.pi/2 - self.ship.initial_heading) * (180 / math.pi)))
         raw_swath = transform.rotate(swath_set[tuple(e), heading], - ((math.pi/2 - self.ship.initial_heading) * (180 / math.pi)))
-        print("got through")
 
         # swath mask has starting node at the centre and want to put at the starting node of currently expanded node
         # in the cmap, need to remove the extra columns/rows of the swath mask
@@ -232,7 +231,6 @@ class AStar:
             min_y = 0
         swath[min_y:max_y, min_x:max_x] = raw_swath
 
-        print("Hello")
         if invalid:
             return "Fail"
         else:
@@ -277,7 +275,7 @@ class AStar:
         heading = heading / (math.pi / 4)
         #assert abs(heading - int(heading)) < 1e-4, "heading '{:4f}' should be an integer between 0-7".format(heading)
 
-        return result[0], result[1], int(heading)
+        return round(result[0], 5), round(result[1], 5), int(heading)
 
     @staticmethod
     def is_point_in_set(point, point_set):
