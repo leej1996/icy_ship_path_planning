@@ -280,7 +280,7 @@ class AStar:
         heading = heading / (math.pi / 4)
         #assert abs(heading - int(heading)) < 1e-4, "heading '{:4f}' should be an integer between 0-7".format(heading)
 
-        return result[0], result[1], int(heading)
+        return round(result[0], 5), round(result[1], 5), int(heading)
 
     @staticmethod
     def is_point_in_set(point, point_set):

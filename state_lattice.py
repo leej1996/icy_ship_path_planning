@@ -395,10 +395,12 @@ def main():
             print("INITIAL HEADING", ship.initial_heading)
             print("ANGLE", ship.body.angle)
             print("NEW GOAL", snapped_goal)
-            #t0 = time.clock()
+            print("NEW START", curr_pos)
+            t0 = time.clock()
             worked, smoothed_edge_path, nodes_visited, x1, y1, x2, y2, orig_path = \
             a_star.search(curr_pos, snapped_goal, cardinal_swaths, ordinal_swaths, smooth_path)
-            #t1 = time.clock() - t0
+            t1 = time.clock() - t0
+            print("PLAN TIME", t1)
             if worked:
                 print("Replanned Path")
         # '''
