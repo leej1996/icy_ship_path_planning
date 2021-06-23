@@ -58,27 +58,30 @@ class Primitives:
         self.rotate(theta=initial_heading)
         self.max_prim = self.get_max_prim()
 
-    @staticmethod
-    def view(edge_set: np.ndarray, theta: float, save_fig_fp="primitives.png"):
+    def view(self, theta: float = None, save_fig_prefix="primitives_"):
         """ plots all the primitives in the edge point_set """
-        # use an arrow to indicate node location and heading
-        fig = plt.figure(figsize=(8, 4))
-        arrow = partial(plt.arrow, head_width=0.2, width=0.05, ec="green")
-
+        if theta is None:
+            theta = self.initial_heading
         arrow_length = 0.2
-        R = np.asarray([
-            [np.cos(theta), -np.sin(theta)],
-            [np.sin(theta), np.cos(theta)]
-        ])
-        for item in edge_set:
-            # compute the heading
-            heading = item[2] * np.pi / 4
-            xy = item[:2]
-            dxdy = (R @ np.asarray([np.cos(heading), np.sin(heading)])) * arrow_length
-            arrow(x=xy[0], y=xy[1], dx=dxdy[0], dy=dxdy[1])
+        for edge_set, name in zip([self.edge_set_ordinal, self.edge_set_cardinal],
+                                  ['ordinal', 'cardinal']):
+            # use an arrow to indicate node location and heading
+            fig = plt.figure(figsize=(8, 4))
+            arrow = partial(plt.arrow, head_width=0.2, width=0.05, ec="green")
 
-        plt.savefig(save_fig_fp)
-        plt.show()
+            R = np.asarray([
+                [np.cos(theta), -np.sin(theta)],
+                [np.sin(theta), np.cos(theta)]
+            ])
+            for item in edge_set:
+                # compute the heading
+                heading = item[2] * np.pi / 4
+                xy = item[:2]
+                dxdy = (R @ np.asarray([np.cos(heading), np.sin(heading)])) * arrow_length
+                arrow(x=xy[0], y=xy[1], dx=dxdy[0], dy=dxdy[1])
+
+            plt.savefig(save_fig_prefix + name + ".png")
+            plt.show()
 
     def rotate(self, theta: float):
         R = np.asarray([
@@ -102,7 +105,8 @@ class Primitives:
 
 if __name__ == '__main__':
     # for testing purposes
-    theta = np.pi/4
-    p = Primitives(initial_heading=theta)
+    initial_heading = 0
+    p = Primitives(initial_heading=initial_heading)
     print(p.edge_set_cardinal)
-    p.view(p.edge_set_cardinal, theta=theta)
+    print(p.edge_set_ordinal)
+    p.view()

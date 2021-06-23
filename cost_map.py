@@ -39,7 +39,7 @@ class CostMap:
         while len(self.obstacles) < num_obs:
             near_obs = False
             x = random.randint(max_r, channel_width - max_r - 1)
-            y = random.randint(start_pos[1] + lower_offset + max_r, goal_pos[1] - upper_offset - max_r)
+            y = random.randint(start_pos[1] + lower_offset + max_r, int(goal_pos[1] - upper_offset - max_r))
             r = random.randint(min_r, max_r)
 
             if not allow_overlap:

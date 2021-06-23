@@ -146,7 +146,8 @@ def main():
                               [-1, 3]])
     obstacle_penalty = 3
     start_pos = (20, 10, 0)  # (x, y, theta), possible values for theta 0 - 7 measured from ships positive x axis
-    goal_pos = (20, 280, math.pi / 2 - initial_heading)
+    goal_pos = snap_to_lattice(start_pos=start_pos, goal_pos=(20, 280, math.pi / 2 - initial_heading),
+                               initial_heading=initial_heading, turning_radius=turning_radius)
     print("GOAL", goal_pos)
     smooth_path = False
 
@@ -178,7 +179,7 @@ def main():
 
     # initialize a star object
     a_star = AStar(g_weight=0.1, h_weight=0.9, cmap=costmap_obj,
-                   primitives=prim, ship=ship)
+                   primitives=prim, ship=ship, first_initial_heading=initial_heading)
 
     t0 = time.clock()
     worked, smoothed_edge_path, nodes_visited, x1, y1, x2, y2, orig_path = \
@@ -364,7 +365,6 @@ def main():
             snapped_goal = snap_to_lattice(curr_pos, goal_pos, ship.body.angle, turning_radius)
             curr_pos = (ship_pos[0], ship_pos[1], 0)  # straight ahead of boat is 0
 
-            print("hey")
             copy_ord_edges = prim.edge_set_ordinal.copy()
             copy_card_edges = prim.edge_set_cardinal.copy()
 
@@ -381,7 +381,6 @@ def main():
                 ordinal_swaths[tuple(e), 7] = ordinal_swaths[tuple(old_e), 7]
                 del ordinal_swaths[tuple(old_e), 7]
 
-            print("hello")
             for old_e, e in zip(copy_card_edges, prim.edge_set_cardinal):
                 cardinal_swaths[tuple(e), 0] = cardinal_swaths[tuple(old_e), 0]
                 del cardinal_swaths[tuple(old_e), 0]

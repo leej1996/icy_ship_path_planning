@@ -16,13 +16,14 @@ from utils import heading_to_world_frame
 class AStar:
 
     def __init__(self, g_weight: float, h_weight: float, cmap: CostMap,
-                 primitives: Primitives, ship: Ship):
+                 primitives: Primitives, ship: Ship, first_initial_heading: float):
         self.g_weight = g_weight
         self.h_weight = h_weight
         self.cmap = cmap
         self.chan_h, self.chan_w = np.shape(self.cmap.cost_map)
         self.primitives = primitives
         self.ship = ship
+        self.first_initial_heading = first_initial_heading
 
     def search(self, start: tuple, goal: tuple, cardinal_swath: dict, ordinal_swath: dict, path_smooth: bool = True):
         free_path_interval = 1
@@ -44,8 +45,8 @@ class AStar:
 
         while len(openSet) != 0:
             node = f_score_open_sorted.get()[0]
-            print("GENERATION", generation)
-            print("NODE:", node)
+            # print("GENERATION", generation)
+            # print("NODE:", node)
 
             # If ship past all obstacles, calc direct dubins path to goal
             '''
@@ -64,12 +65,14 @@ class AStar:
             '''
 
 
-            if self.dist(node, goal) < 3 and abs(node[2] - goal[2]) < 0.01:
+            if self.dist(node, goal) < 5 and abs(node[2] - goal[2]) < 0.01:
+                print("goal", goal)
+                print("node", node)
                 print("Found path")
                 path = []
                 new_path_length = []
                 cameFrom[goal] = cameFrom[node]
-                path.append(goal)
+                path.append(goal)  # NOTE: here we assume the goal node is reachable!
                 new_path_length.append(path_length[node])
 
                 while node != start:
@@ -83,7 +86,7 @@ class AStar:
                 if path_smooth == True:
                     path.reverse()  # path: start -> goal
                     new_path_length.reverse()
-                    print("path", path)
+                    # print("path", path)
                     add_nodes = int(len(path))  # number of nodes to add in the path smoothing algorithm
 
                     # cap at adding 10 nodes to reduce run time
@@ -93,7 +96,7 @@ class AStar:
                     smooth_path, x1, y1, x2, y2 = path_smoothing(path, new_path_length, self.cmap,
                                                                  start, goal, self.ship, add_nodes, dist_cuttoff=30)
                     t1 = time.clock() - t0
-                    print("smooth time", t1)
+                    # print("smooth time", t1)
                 else:
                     smooth_path = path
                     x1 = []
@@ -119,9 +122,9 @@ class AStar:
                 # print("ORDINAL")
 
             for e in edge_set: #
-                print("EDGE", e)
+                # print("EDGE", e)
                 neighbour = self.concat(node, e)
-                print("NEIGHBOUR",neighbour)
+                # print("NEIGHBOUR",neighbour)
 
                 if neighbour[0] - self.ship.max_ship_length / 2 >= 0 and \
                         neighbour[0] + self.ship.max_ship_length / 2 <= self.chan_w and \
@@ -184,9 +187,10 @@ class AStar:
     def get_swath(self, e, start_pos, swath_set):
         swath = np.zeros_like(self.cmap.cost_map, dtype=bool)
         heading = int(start_pos[2])
-        print(- ((math.pi/2 - self.ship.initial_heading) * (180 / math.pi)))
-        raw_swath = transform.rotate(swath_set[tuple(e), heading], - ((math.pi/2 - self.ship.initial_heading) * (180 / math.pi)))
-        print("got through")
+        # raw_swath = swath_set[tuple(e), heading]
+        # print(((self.first_initial_heading - self.ship.initial_heading) * (180 / math.pi)))
+        raw_swath = transform.rotate(swath_set[tuple(e), heading],
+                                     ((self.first_initial_heading - self.ship.initial_heading) * (180 / math.pi)))
 
         # swath mask has starting node at the centre and want to put at the starting node of currently expanded node
         # in the cmap, need to remove the extra columns/rows of the swath mask
@@ -232,7 +236,6 @@ class AStar:
             min_y = 0
         swath[min_y:max_y, min_x:max_x] = raw_swath
 
-        print("Hello")
         if invalid:
             return "Fail"
         else:
