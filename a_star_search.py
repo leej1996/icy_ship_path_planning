@@ -25,7 +25,7 @@ class AStar:
         self.ship = ship
         self.first_initial_heading = first_initial_heading
 
-    def search(self, start: tuple, goal: tuple, cardinal_swath: dict, ordinal_swath: dict, path_smooth: bool = True):
+    def search(self, start: tuple, goal: tuple, cardinal_swath: dict, ordinal_swath: dict, smooth_path: bool = True):
         free_path_interval = 1
         generation = 0  # number of nodes expanded
         print("start", start)
@@ -83,7 +83,7 @@ class AStar:
 
                 orig_path = path.copy()
 
-                if path_smooth == True:
+                if smooth_path == True:
                     path.reverse()  # path: start -> goal
                     new_path_length.reverse()
                     # print("path", path)
@@ -121,8 +121,7 @@ class AStar:
                 swath_set = ordinal_swath
                 # print("ORDINAL")
 
-            for e in edge_set: #
-                # print("EDGE", e)
+            for e in edge_set:
                 neighbour = self.concat(node, e)
                 # print("NEIGHBOUR",neighbour)
 
@@ -151,12 +150,8 @@ class AStar:
                     temp_g_score = g_score[node] + cost
                     # print("cost", cost)
 
-                    if neighbour in openSet:
-                        neighbour_in_open_set = True
-                        open_set_neighbour = neighbour
-                    else:
-                        neighbour_in_open_set = False
-                        open_set_neighbour = False
+                    # check if point is in open set
+                    neighbour_in_open_set, open_set_neighbour = self.is_point_in_set(neighbour, openSet)
 
                     if not neighbour_in_open_set:
                         heuristic_value = self.heuristic(neighbour, goal)
@@ -180,7 +175,7 @@ class AStar:
                         f_score_open_sorted._update((open_set_neighbour, f_score[open_set_neighbour]), new_f_score)
                         f_score[open_set_neighbour] = new_f_score
             generation += 1
-        print("Fail")
+        print("\nFail")
         return False, 'Fail', 'Fail', 'Fail', 'Fail', 'Fail', 'Fail', 'Fail'
 
     # helper methods
@@ -245,8 +240,8 @@ class AStar:
         """
         The Dubins' distance from initial to final points.
         """
-        theta_0 = heading_to_world_frame(p_initial[2], self.ship.initial_heading) % (2 * math.pi)
-        theta_1 = heading_to_world_frame(p_final[2], self.ship.initial_heading) % (2 * math.pi)
+        theta_0 = heading_to_world_frame(p_initial[2], self.ship.initial_heading)
+        theta_1 = heading_to_world_frame(p_final[2], self.ship.initial_heading)
         p1 = (p_initial[0], p_initial[1], theta_0)
         p2 = (p_final[0], p_final[1], theta_1)
         path = dubins.shortest_path(p1, p2, self.ship.turning_radius)
@@ -257,7 +252,7 @@ class AStar:
         """
         given two points x,y in the lattice, find the concatenation x + y
         """
-        rot = x[2] * math.pi / 4  # starting heading
+        rot = x[2] * math.pi / 4  # starting heading # TODO: hardcoded
         p1 = [x[0], x[1]]
         p2_theta = y[2] * math.pi / 4  # edge heading
         p2 = [y[0], y[1]]
@@ -283,9 +278,9 @@ class AStar:
         return round(result[0], 5), round(result[1], 5), int(heading)
 
     @staticmethod
-    def is_point_in_set(point, point_set):
+    def is_point_in_set(point, point_set, tol=1e-1):
         for curr_point in point_set:
-            if AStar.dist(point, curr_point) < 0.001 and abs(point[2] - curr_point[2]) < 0.001:
+            if AStar.dist(point, curr_point) < tol and point[2] == curr_point[2]:
                 return True, curr_point
         return False, False
 
