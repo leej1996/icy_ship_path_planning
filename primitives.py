@@ -2,6 +2,8 @@ from functools import partial
 
 import numpy as np
 import matplotlib.pyplot as plt
+import dubins
+from utils import heading_to_world_frame
 
 
 class Primitives:
@@ -58,7 +60,7 @@ class Primitives:
         self.rotate(theta=initial_heading)
         self.max_prim = self.get_max_prim()
 
-    def view(self, theta: float = None, save_fig_prefix="primitives_"):
+    def view(self, theta: float = None, save_fig_prefix="primitives_", turning_radius: float = 1):
         """ plots all the primitives in the edge point_set """
         if theta is None:
             theta = self.initial_heading
@@ -66,6 +68,10 @@ class Primitives:
         for edge_set, name in zip([self.edge_set_ordinal, self.edge_set_cardinal],
                                   ['ordinal', 'cardinal']):
             # use an arrow to indicate node location and heading
+            if name == 'ordinal':
+                origin = (0, 0, 1)
+            else:
+                origin = (0, 0, 0)
             fig = plt.figure(figsize=(8, 4))
             arrow = partial(plt.arrow, head_width=0.2, width=0.05, ec="green")
 
@@ -79,6 +85,22 @@ class Primitives:
                 xy = item[:2]
                 dxdy = (R @ np.asarray([np.cos(heading), np.sin(heading)])) * arrow_length
                 arrow(x=xy[0], y=xy[1], dx=dxdy[0], dy=dxdy[1])
+
+                theta_0 = heading_to_world_frame(origin[2], theta) % (2 * np.pi)
+                theta_1 = heading_to_world_frame(item[2], theta) % (2 * np.pi)
+                dubins_path = dubins.shortest_path((origin[0], origin[1], theta_0),
+                                                   (item[0], item[1], theta_1),
+                                                   turning_radius - 1e-4)
+                configurations, _ = dubins_path.sample_many(0.2)
+                # 0.01
+                x = []
+                y = []
+
+                for config in configurations:
+                    x.append(config[0])
+                    y.append(config[1])
+
+                plt.plot(x, y, 'b')
 
             plt.savefig(save_fig_prefix + name + ".png")
             plt.show()
