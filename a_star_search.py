@@ -28,7 +28,7 @@ class AStar:
     def search(self, start: tuple, goal: tuple, cardinal_swath: dict, ordinal_swath: dict, smooth_path: bool = True):
         free_path_interval = 1
         generation = 0  # number of nodes expanded
-        print("start", start)
+        # print("start", start)
         openSet = {start: generation}  # point_set of nodes considered for expansion
         closedSet = []
         cameFrom = {start: None}
@@ -66,9 +66,9 @@ class AStar:
 
 
             if self.dist(node, goal) < 5 and abs(node[2] - goal[2]) < 0.01:
-                print("goal", goal)
+                #print("goal", goal)
                 print("node", node)
-                print("Found path")
+                #print("Found path")
                 path = []
                 new_path_length = []
                 cameFrom[goal] = cameFrom[node]
@@ -92,10 +92,10 @@ class AStar:
                     # cap at adding 10 nodes to reduce run time
                     if add_nodes > 10:
                         add_nodes = 10
-                    t0 = time.clock()
+                    # t0 = time.clock()
                     smooth_path, x1, y1, x2, y2 = path_smoothing(path, new_path_length, self.cmap,
                                                                  start, goal, self.ship, add_nodes, dist_cuttoff=30)
-                    t1 = time.clock() - t0
+                    # t1 = time.clock() - t0
                     # print("smooth time", t1)
                 else:
                     smooth_path = path
@@ -186,7 +186,6 @@ class AStar:
         # print(((self.first_initial_heading - self.ship.initial_heading) * (180 / math.pi)))
         raw_swath = transform.rotate(swath_set[tuple(e), heading],
                                      ((self.first_initial_heading - self.ship.initial_heading) * (180 / math.pi)))
-
         # swath mask has starting node at the centre and want to put at the starting node of currently expanded node
         # in the cmap, need to remove the extra columns/rows of the swath mask
         max_val = int(self.primitives.max_prim + self.ship.max_ship_length // 2)

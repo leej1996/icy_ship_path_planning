@@ -2,6 +2,7 @@ import math
 import os
 import pickle
 import time
+import copy
 
 import dubins
 import numpy as np
@@ -27,6 +28,7 @@ def generate_swath(ship: Ship, edge_set: np.ndarray, heading: int, prim: Primiti
     """
     swath_set = {}
     start_pos = [prim.max_prim + ship.max_ship_length // 2] * 2 + [heading]
+    print(start_pos)
 
     for e in edge_set:
         e = tuple(e)
@@ -39,7 +41,7 @@ def generate_swath(ship: Ship, edge_set: np.ndarray, heading: int, prim: Primiti
                                            (translated_e[0], translated_e[1], theta_1),
                                            ship.turning_radius)
 
-        configurations, _ = dubins_path.sample_many(0.5)
+        configurations, _ = dubins_path.sample_many(0.1)
 
         for config in configurations:
             x_cell = int(round(config[0]))
@@ -227,7 +229,7 @@ def plot_path(fig1, costmap_obj, smoothed_edge_path, initial_heading, turning_ra
         node_plot[r, c] = node_plot[r, c] + 1
 
     ax1[1].imshow(node_plot, origin='lower')
-    return fig1, path, node_plot
+    return fig1, path, node_plot, ax1
 
 
 def main():
@@ -313,7 +315,7 @@ def main():
     # FIXME: why regenerate again, can't we just do this in the smoothing step????
     node_plot = np.zeros((n, m))
     if worked:
-        fig1, path, node_plot = plot_path(fig1, costmap_obj, smoothed_edge_path, initial_heading, turning_radius, smooth_path, prim, x1, x2, y1, y2, node_plot, nodes_visited)
+        fig1, path, node_plot, _ = plot_path(fig1, costmap_obj, smoothed_edge_path, initial_heading, turning_radius, smooth_path, prim, x1, x2, y1, y2, node_plot, nodes_visited)
     else:
         path = 0
 
@@ -376,7 +378,6 @@ def main():
 
         ship_pos = (ship.body.position.x, ship.body.position.y)
 
-        # '''
         if (dt % 50  == 0 and dt != 0):
             curr_pos = (ship_pos[0], ship_pos[1], ship.body.angle)
             snapped_goal = snap_to_lattice(curr_pos, goal_pos, ship.body.angle, turning_radius)
@@ -385,30 +386,30 @@ def main():
             copy_ord_edges = prim.edge_set_ordinal.copy()
             copy_card_edges = prim.edge_set_cardinal.copy()
 
-            prim.rotate(ship.body.angle)
-
+            ship.initial_heading = ship.body.angle + math.pi / 2
+            prim.rotate(ship.body.angle, orig=True)
             for old_e, e in zip(copy_ord_edges, prim.edge_set_ordinal):
-                # print(old_e, e)
-                ordinal_swaths[tuple(e), 1] = ordinal_swaths[tuple(old_e), 1]
-                del ordinal_swaths[tuple(old_e), 1]
-                ordinal_swaths[tuple(e), 3] = ordinal_swaths[tuple(old_e), 3]
-                del ordinal_swaths[tuple(old_e), 3]
-                ordinal_swaths[tuple(e), 5] = ordinal_swaths[tuple(old_e), 5]
-                del ordinal_swaths[tuple(old_e), 5]
-                ordinal_swaths[tuple(e), 7] = ordinal_swaths[tuple(old_e), 7]
-                del ordinal_swaths[tuple(old_e), 7]
+                if not np.array_equal(old_e, e):
+                    ordinal_swaths[tuple(e), 1] = ordinal_swaths[tuple(old_e), 1]
+                    del ordinal_swaths[tuple(old_e), 1]
+                    ordinal_swaths[tuple(e), 3] = ordinal_swaths[tuple(old_e), 3]
+                    del ordinal_swaths[tuple(old_e), 3]
+                    ordinal_swaths[tuple(e), 5] = ordinal_swaths[tuple(old_e), 5]
+                    del ordinal_swaths[tuple(old_e), 5]
+                    ordinal_swaths[tuple(e), 7] = ordinal_swaths[tuple(old_e), 7]
+                    del ordinal_swaths[tuple(old_e), 7]
 
             for old_e, e in zip(copy_card_edges, prim.edge_set_cardinal):
-                cardinal_swaths[tuple(e), 0] = cardinal_swaths[tuple(old_e), 0]
-                del cardinal_swaths[tuple(old_e), 0]
-                cardinal_swaths[tuple(e), 2] = cardinal_swaths[tuple(old_e), 2]
-                del cardinal_swaths[tuple(old_e), 2]
-                cardinal_swaths[tuple(e), 4] = cardinal_swaths[tuple(old_e), 4]
-                del cardinal_swaths[tuple(old_e), 4]
-                cardinal_swaths[tuple(e), 6] = cardinal_swaths[tuple(old_e), 6]
-                del cardinal_swaths[tuple(old_e), 6]
+                if not np.array_equal(old_e, e):
+                    cardinal_swaths[tuple(e), 0] = cardinal_swaths[tuple(old_e), 0]
+                    del cardinal_swaths[tuple(old_e), 0]
+                    cardinal_swaths[tuple(e), 2] = cardinal_swaths[tuple(old_e), 2]
+                    del cardinal_swaths[tuple(old_e), 2]
+                    cardinal_swaths[tuple(e), 4] = cardinal_swaths[tuple(old_e), 4]
+                    del cardinal_swaths[tuple(old_e), 4]
+                    cardinal_swaths[tuple(e), 6] = cardinal_swaths[tuple(old_e), 6]
+                    del cardinal_swaths[tuple(old_e), 6]
 
-            ship.initial_heading = ship.body.angle + math.pi / 2
             print("INITIAL HEADING", ship.initial_heading)
             print("ANGLE", ship.body.angle)
             print("NEW GOAL", snapped_goal)
@@ -429,7 +430,7 @@ def main():
                 '''
                 costmap_obj.update(polygons)
                 node_plot = np.zeros((n, m))
-                fig1, _, node_plot = plot_path(fig1, costmap_obj, smoothed_edge_path, initial_heading, turning_radius, smooth_path, prim, x1, x2, y1, y2, node_plot, nodes_visited)
+                fig1, _, node_plot, ax1 = plot_path(fig1, costmap_obj, smoothed_edge_path, ship.initial_heading, turning_radius, smooth_path, prim, x1, x2, y1, y2, node_plot, nodes_visited)
                 plt.show(block=False)
                 # print("got out")
         # '''

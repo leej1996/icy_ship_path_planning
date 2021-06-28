@@ -59,12 +59,14 @@ class Primitives:
 
         self.rotate(theta=initial_heading)
         self.max_prim = self.get_max_prim()
+        self.orig_edge_set_ordinal = self.edge_set_ordinal
+        self.orig_edge_set_cardinal = self.edge_set_cardinal
 
     def view(self, theta: float = None, save_fig_prefix="primitives_", turning_radius: float = 1):
         """ plots all the primitives in the edge point_set """
         if theta is None:
             theta = self.initial_heading
-        arrow_length = 0.2
+        arrow_length = 0.2 * turning_radius
         for edge_set, name in zip([self.edge_set_ordinal, self.edge_set_cardinal],
                                   ['ordinal', 'cardinal']):
             # use an arrow to indicate node location and heading
@@ -72,8 +74,9 @@ class Primitives:
                 origin = (0, 0, 1)
             else:
                 origin = (0, 0, 0)
-            fig = plt.figure(figsize=(8, 4))
-            arrow = partial(plt.arrow, head_width=0.2, width=0.05, ec="green")
+            fig = plt.figure(figsize=(6, 6))
+            plt.title("Theta = {} {}".format(round(theta, 5), name))
+            arrow = partial(plt.arrow, head_width=0.2* turning_radius, width=0.05* turning_radius, ec="green")
 
             R = np.asarray([
                 [np.cos(theta), -np.sin(theta)],
@@ -105,15 +108,19 @@ class Primitives:
             plt.savefig(save_fig_prefix + name + ".png")
             plt.show()
 
-    def rotate(self, theta: float):
+    def rotate(self, theta: float, orig: bool = False):
         R = np.asarray([
             [np.cos(theta), -np.sin(theta), 0],
             [np.sin(theta), np.cos(theta), 0],
             [0, 0, 1]
         ])
 
-        self.edge_set_cardinal = self.edge_set_cardinal @ R.T
-        self.edge_set_ordinal = self.edge_set_ordinal @ R.T
+        if orig:
+            self.edge_set_cardinal = self.orig_edge_set_cardinal @ R.T
+            self.edge_set_ordinal = self.orig_edge_set_ordinal @ R.T
+        else:
+            self.edge_set_cardinal = self.edge_set_cardinal @ R.T
+            self.edge_set_ordinal = self.edge_set_ordinal @ R.T
 
     def get_max_prim(self):
         # compute the total space occupied by the primitives
