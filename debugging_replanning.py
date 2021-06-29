@@ -62,9 +62,12 @@ if __name__ == '__main__':
     # initialize current node
     curr_pos = smoothed_edge_path[1]
 
+    # initialize goal for stopping condition
+    snapped_goal = goal_pos
+
     # run a star until goal node is exactly reached
     while (
-            AStar.dist(curr_pos, goal_pos) >= 1e-3
+            AStar.dist(curr_pos, snapped_goal) >= 1e-3
     ):
         print("\n################\nNEXT STEP\nStarting node", curr_pos)
         # compute the heading of current in the world frame
