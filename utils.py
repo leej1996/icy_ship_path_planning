@@ -27,7 +27,7 @@ def plot_path(ax, path, cost_map, ship):
         theta_1 = heading_to_world_frame(p2[2], ship.initial_heading)
         dubins_path = dubins.shortest_path((p1[0], p1[1], theta_0),
                                            (p2[0], p2[1], theta_1),
-                                           ship.turning_radius)
+                                           ship.turning_radius - 1e-3)
         configurations, _ = dubins_path.sample_many(0.2)
         x1 = []
         y1 = []

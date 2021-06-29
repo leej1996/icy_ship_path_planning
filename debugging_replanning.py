@@ -19,12 +19,12 @@ from cost_map import CostMap
 from primitives import Primitives
 from ship import Ship
 from state_lattice import snap_to_lattice, generate_swath
-from utils import heading_to_world_frame
+from utils import heading_to_world_frame, plot_path
 
 # Resolution is 10 m
 n = 300
 m = 40
-initial_heading = 3 * math.pi / 4
+initial_heading = math.pi / 2
 density = 3
 turning_radius = 8  # 300 m turn radius
 ship_vertices = np.array([[0, 4],
@@ -36,7 +36,11 @@ obstacle_penalty = 3
 start_pos = (20, 34, 0)  # (x, y, theta), possible values for theta 0 - 7 measured from ships positive x axis
 goal_pos = snap_to_lattice(start_pos=start_pos, goal_pos=(20, 282, math.pi / 2 - initial_heading),
                            initial_heading=initial_heading, turning_radius=turning_radius)
-print("GOAL", goal_pos)
+print("Initial heading", initial_heading,
+      "\nStart position", start_pos,
+      "\nGoal position", goal_pos)
+
+# disables smoothing part
 smooth_path = False
 
 # initialize costmap
@@ -47,8 +51,7 @@ costmap_obj.generate_obstacles(start_pos, goal_pos, num_obs=130, min_r=1, max_r=
                                upper_offset=20, lower_offset=20, allow_overlap=False)
 
 # initialize ship object
-ship = Ship(ship_vertices, start_pos, goal_pos, initial_heading, turning_radius)
-print("TURN RADIUS", ship.calc_turn_radius(45, 2))
+ship = Ship(ship_vertices, start_pos, initial_heading, turning_radius)
 # get the primitives
 prim = Primitives(scale=turning_radius, initial_heading=initial_heading)
 
@@ -64,41 +67,57 @@ worked, smoothed_edge_path, nodes_visited, x1, y1, x2, y2, orig_path = \
     a_star.search(start_pos, goal_pos, cardinal_swaths, ordinal_swaths, smooth_path)
 
 smoothed_edge_path.reverse()
-print("\nOriginal path", smoothed_edge_path)
-fig1, ax1 = plt.subplots(1, 2, figsize=(5, 10))
+print("Original path", smoothed_edge_path)
 
-# run a star starting at each node in original found path
-for node in smoothed_edge_path[1:]:
-    print("\nStarting node", node)
-    initial_heading = heading_to_world_frame(node[2], initial_heading)
-    ship.initial_heading = initial_heading
+# initialize current node
+curr_pos = smoothed_edge_path[1]
+
+# run a star until goal node is exactly reached
+while (
+        AStar.dist(curr_pos, goal_pos) >= 1e-3
+):
+    print("\n################\nNEXT STEP\nStarting node", curr_pos)
+    # compute the heading of current in the world frame
+    initial_heading = heading_to_world_frame(curr_pos[2], initial_heading)
     print("New initial_heading", initial_heading)
-    snapped_goal = snap_to_lattice(node, goal_pos, initial_heading, turning_radius)
+    # snap goal to lattice
+    snapped_goal = snap_to_lattice(curr_pos, goal_pos, initial_heading, turning_radius)
+    new_start = (*curr_pos[:2], 0)  # straight ahead of boat is 0
 
-    new_start = (*node[:2], 0)  # straight ahead of boat is 0
     print("New start", new_start)
     print("New goal", snapped_goal)
 
-    # save current edge sets
-    prev_edge_set_ordinal = prim.edge_set_ordinal.copy()
-    prev_edge_set_cardinal = prim.edge_set_cardinal.copy()
+    # the angle to rotate the primitives and swath keys based on the difference
+    # between previous ship heading and current initial heading
+    theta = initial_heading - ship.initial_heading
+    print("Rotating primitives and swaths by", theta)
 
     # rotate primitives
-    prim.rotate(initial_heading)
+    prim.rotate(theta)
 
     # update swath keys
-    new_ordinal_swaths = {}
-    new_cardinal_swaths = {}
-    for old_e, e in zip(prev_edge_set_ordinal, prim.edge_set_ordinal):
-        for i in [1, 3, 5, 7]:
-            new_ordinal_swaths[tuple(e), i] = ordinal_swaths[tuple(old_e), i]
+    ordinal_swaths, cardinal_swaths = prim.update_swath(theta=theta,
+                                                        ord_swath=ordinal_swaths,
+                                                        card_swath=cardinal_swaths)
+    # update ship initial heading
+    ship.initial_heading = initial_heading
 
-    for old_e, e in zip(prev_edge_set_cardinal, prim.edge_set_cardinal):
-        for i in [0, 2, 4, 6]:
-            new_cardinal_swaths[tuple(e), i] = cardinal_swaths[tuple(old_e), i]
-
+    # run search
     worked, new_path, nodes_visited, x1, y1, x2, y2, orig_path = \
-        a_star.search(new_start, snapped_goal, new_cardinal_swaths, new_ordinal_swaths)
+        a_star.search(new_start, snapped_goal, cardinal_swaths, ordinal_swaths, smooth_path=False)
 
-    new_path.reverse()
-    print("\nNew path", new_path)
+    if new_path != "Fail":
+        new_path.reverse()
+        print("\nNew path", new_path)
+
+        if len(new_path) <= 1:
+            break
+        curr_pos = new_path[1]
+
+        fig, ax = plt.subplots(1, figsize=(5, 10))
+        plot_path(ax, new_path, costmap_obj.cost_map, ship)
+        plt.show()
+    else:
+        exit(1)
+
+print("\n\nDONE!!")
