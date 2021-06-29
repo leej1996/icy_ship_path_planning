@@ -7,11 +7,8 @@ from pymunk import Vec2d
 
 
 class Ship:
-    def __init__(self, vertices: np.ndarray, start_pos: Tuple, goal_pos: Tuple,
-                 initial_heading: float, turning_radius: float):
+    def __init__(self, vertices: np.ndarray, start_pos: Tuple, initial_heading: float, turning_radius: float):
         self.vertices = vertices
-        self.start_pos = start_pos  # (x, y, theta) we assume theta of 0 is always in the direction of the ship
-        self.goal_pos = goal_pos
         self.initial_heading = initial_heading  # angle between ship and fixed coordinates on the map
         self.turning_radius = turning_radius
         dist = lambda a, b: np.sqrt((a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2)
@@ -22,7 +19,7 @@ class Ship:
         self.body = pymunk.Body(1, 100, body_type=pymunk.Body.KINEMATIC)
         self.body.position = start_pos[:2]
         self.body.velocity = Vec2d(0, 0)
-        self.body.angle = math.radians(initial_heading)
+        self.body.angle = 0
         self.shape = pymunk.Poly(self.body, [tuple(item) for item in self.vertices])  # uses same ship vertices
         self.path_pos = 0
 

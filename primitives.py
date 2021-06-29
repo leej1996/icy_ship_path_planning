@@ -52,6 +52,11 @@ class Primitives:
             (5, 0, 1),
             (5, 0, 7)
         ])
+        self.rotation_matrix = lambda theta: np.asarray([
+            [np.cos(theta), -np.sin(theta), 0],
+            [np.sin(theta), np.cos(theta), 0],
+            [0, 0, 1]
+        ])
 
         if self.scale is not None:
             self.edge_set_ordinal[:, :2] *= scale
@@ -70,13 +75,10 @@ class Primitives:
         for edge_set, name in zip([self.edge_set_ordinal, self.edge_set_cardinal],
                                   ['ordinal', 'cardinal']):
             # use an arrow to indicate node location and heading
-            if name == 'ordinal':
-                origin = (0, 0, 1)
-            else:
-                origin = (0, 0, 0)
+            origin = (0, 0, 1) if name == 'ordinal' else (0, 0, 0)
             fig = plt.figure(figsize=(6, 6))
             plt.title("Theta = {} {}".format(round(theta, 5), name))
-            arrow = partial(plt.arrow, head_width=0.2* turning_radius, width=0.05* turning_radius, ec="green")
+            arrow = partial(plt.arrow, head_width=0.2 * turning_radius, width=0.05 * turning_radius, ec="green")
 
             R = np.asarray([
                 [np.cos(theta), -np.sin(theta)],
@@ -89,8 +91,9 @@ class Primitives:
                 dxdy = (R @ np.asarray([np.cos(heading), np.sin(heading)])) * arrow_length
                 arrow(x=xy[0], y=xy[1], dx=dxdy[0], dy=dxdy[1])
 
-                theta_0 = heading_to_world_frame(origin[2], theta) % (2 * np.pi)
-                theta_1 = heading_to_world_frame(item[2], theta) % (2 * np.pi)
+                # TODO: make a helper function for lines 95 - 107
+                theta_0 = heading_to_world_frame(origin[2], theta)
+                theta_1 = heading_to_world_frame(item[2], theta)
                 dubins_path = dubins.shortest_path((origin[0], origin[1], theta_0),
                                                    (item[0], item[1], theta_1),
                                                    turning_radius - 1e-4)
@@ -109,18 +112,28 @@ class Primitives:
             plt.show()
 
     def rotate(self, theta: float, orig: bool = False):
-        R = np.asarray([
-            [np.cos(theta), -np.sin(theta), 0],
-            [np.sin(theta), np.cos(theta), 0],
-            [0, 0, 1]
-        ])
+        R = self.rotation_matrix(theta)
 
         if orig:
-            self.edge_set_cardinal = self.orig_edge_set_cardinal @ R.T
-            self.edge_set_ordinal = self.orig_edge_set_ordinal @ R.T
+            self.edge_set_cardinal = np.round(self.orig_edge_set_cardinal @ R.T, 5)
+            self.edge_set_ordinal = np.round(self.orig_edge_set_ordinal @ R.T, 5)
         else:
-            self.edge_set_cardinal = self.edge_set_cardinal @ R.T
-            self.edge_set_ordinal = self.edge_set_ordinal @ R.T
+            self.edge_set_cardinal = np.round(self.edge_set_cardinal @ R.T, 5)
+            self.edge_set_ordinal = np.round(self.edge_set_ordinal @ R.T, 5)
+
+    def update_swath(self, theta: float, ord_swath: dict, card_swath: dict):
+        R = self.rotation_matrix(theta)
+
+        # generate new keys for swath
+        new_ord_swath = {
+            (tuple(np.round(k[0] @ R.T, 5)), k[1]): v for k, v in ord_swath.items()
+        }
+
+        new_card_swath = {
+            (tuple(np.round(k[0] @ R.T, 5)), k[1]): v for k, v in card_swath.items()
+        }
+
+        return new_ord_swath, new_card_swath
 
     def get_max_prim(self):
         # compute the total space occupied by the primitives

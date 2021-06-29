@@ -65,14 +65,13 @@ class AStar:
             '''
 
 
-            if self.dist(node, goal) < 5 and abs(node[2] - goal[2]) < 0.01:
+            if self.dist(node, goal) < 3 and abs(node[2] - goal[2]) < 0.01:
                 #print("goal", goal)
                 print("node", node)
                 #print("Found path")
                 path = []
                 new_path_length = []
-                cameFrom[goal] = cameFrom[node]
-                path.append(goal)  # NOTE: here we assume the goal node is reachable!
+                path.append(node)
                 new_path_length.append(path_length[node])
 
                 while node != start:
