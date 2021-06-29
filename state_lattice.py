@@ -14,6 +14,7 @@ from matplotlib import pyplot as plt
 from pymunk.vec2d import Vec2d
 from skimage import draw
 from skimage import transform
+from simple_pid import PID
 
 from a_star_search import AStar
 from cost_map import CostMap
@@ -185,7 +186,7 @@ def plot_path(fig1, costmap_obj, smoothed_edge_path, initial_heading, turning_ra
     fig1, ax1 = plt.subplots(1, 2, figsize=(5, 10))
     ax1[0].imshow(costmap_obj.cost_map, origin='lower')
     PATH = smoothed_edge_path[::-1]
-    path = np.zeros((2, 1))  # what is this used for?
+    path = np.zeros((3, 1))  # what is this used for?
 
     for i in range(np.shape(PATH)[0] - 1):
         P1 = PATH[i]
@@ -199,9 +200,11 @@ def plot_path(fig1, costmap_obj, smoothed_edge_path, initial_heading, turning_ra
         # 0.01
         x = []
         y = []
+        theta = []
         for config in configurations:
             x.append(config[0])
             y.append(config[1])
+            theta.append(config[2] - math.pi / 2)
 
         if not smooth_path and False:  # only want to show primitives on un smoothed path
             if (P1[2] * 45) % 90 == 0:
@@ -221,7 +224,7 @@ def plot_path(fig1, costmap_obj, smoothed_edge_path, initial_heading, turning_ra
                 ax1[0].plot(x3, y3, 'r')
 
         ax1[0].plot(x, y, 'g')
-        path = np.append(path, np.array([np.asarray(x).T, np.asarray(y).T]), axis=1)
+        path = np.append(path, np.array([np.asarray(x).T, np.asarray(y).T, np.asarray(theta).T]), axis=1)
 
     path = np.delete(path, 0, 1)
 
@@ -252,6 +255,8 @@ def main():
                               [-1, -4],
                               [-1, 3]])
     obstacle_penalty = 3
+    vel_scale = 2
+    ang_vel_scale = 10
     start_pos = (20, 10, 0)  # (x, y, theta), possible values for theta 0 - 7 measured from ships positive x axis
     goal_pos = (20, 282, 0)
     print("GOAL", goal_pos)
@@ -368,6 +373,11 @@ def main():
     fig2 = plt.figure()
     ax2 = plt.axes(xlim=(0, m), ylim=(0, n))
     ax2.set_aspect("equal")
+    Kp = 0.01 * ang_vel_scale
+    Ki = 0.002 * ang_vel_scale
+    Kd = 0
+    pid = PID(Kp, Ki, Kd, path[0][2])
+    pid.output_limits = (-0.01309 * ang_vel_scale, 0.01309 * ang_vel_scale)  # set limits at (-45 deg/min, 45 deg/min) as max angular velocity
 
     def init():
         ax2.add_patch(ship_patch)
@@ -382,7 +392,14 @@ def main():
             space.step(2 / 100 / 10)
 
         ship_pos = (ship.body.position.x, ship.body.position.y)
+        # pid.setpoint = path[ship.path_pos][2]
+        # print("Current heading", ship.body.angle)
+        # print("ERROR", -math.pi/2 - ship.body.angle)
+        output = pid(ship.body.angle)
+        # print("OUTPUT", output)
+        # ship.body.angular_velocity = output
 
+        '''
         if (dt % 50  == 0 and dt != 0):
             print("\nNEXT STEP")
             curr_pos = (ship_pos[0], ship_pos[1], ship.body.angle)
@@ -407,27 +424,35 @@ def main():
             print("PLAN TIME", t1)
             if worked:
                 print("Replanned Path", smoothed_edge_path)
-                '''
                 path = plot_path(ax1, costmap_obj, smoothed_edge_path, initial_heading, turning_radius, smooth_path, prim, x1, x2, y1, y2)
                 path = path.T
                 vel_list, ang_vel_list = generate_path_traj(path)
                 print(np.shape(vel_path))
-                ship.set_path_pos(0)               
-                '''
+                ship.set_path_pos(0)
                 costmap_obj.update(polygons)
                 node_plot = np.zeros((n, m))
                 fig1, _, node_plot, ax1 = plot_path(fig1, costmap_obj, smoothed_edge_path, ship.initial_heading, turning_radius, smooth_path, prim, x1, x2, y1, y2, node_plot, nodes_visited)
-                plt.show(block=False)
+                # plt.show(block=False)
                 # print("got out")
-        # '''
+        '''
 
         # determine which part of the path ship is on and get translational/angular velocity for ship
         if ship.path_pos < np.shape(vel_list)[0]:
-            ship.body.velocity = Vec2d(vel_list[ship.path_pos, 0], vel_list[ship.path_pos, 1])
-            ship.body.angular_velocity = ang_vel_list[ship.path_pos]
+            x_vel = math.sin(ship.body.angle)
+            y_vel = math.cos(ship.body.angle)
+            mag = math.sqrt(x_vel**2 + y_vel ** 2)
+            x_vel = x_vel / mag * vel_scale
+            y_vel = y_vel / mag * vel_scale
+            ship.body.velocity = Vec2d(x_vel, y_vel)
+            # ship.body.angular_velocity = ang_vel_list[ship.path_pos]
+            ship.body.angular_velocity = output
+            
             if a_star.dist(ship_pos, path[ship.path_pos, :]) < 0.01:
                 ship.set_path_pos(ship.path_pos + 1)
-
+                print("PATH POS", ship.path_pos)
+                pid.setpoint = path[ship.path_pos][2]
+                print("TRACK ANGLE", path[ship.path_pos][2])
+        # '''
         animate_ship(dt, ship, ship_patch)
         for poly, patch in zip(polygons, patch_list):
             animate_obstacle(dt, poly, patch)
