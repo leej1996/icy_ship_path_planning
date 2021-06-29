@@ -203,6 +203,23 @@ def plot_path(fig1, costmap_obj, smoothed_edge_path, initial_heading, turning_ra
             x.append(config[0])
             y.append(config[1])
 
+        if not smooth_path and False:  # only want to show primitives on un smoothed path
+            if (P1[2] * 45) % 90 == 0:
+                edge_set = prim.edge_set_cardinal
+            else:
+                edge_set = prim.edge_set_ordinal
+            for e in edge_set:
+                p2 = AStar.concat(P1, e)
+                theta_1 = heading_to_world_frame(p2[2], initial_heading) % (2 * math.pi)
+                dubins_path = dubins.shortest_path((P1[0], P1[1], theta_0), (p2[0], p2[1], theta_1), turning_radius - 0.001)
+                configurations, _ = dubins_path.sample_many(0.2)
+                x3 = []
+                y3 = []
+                for config in configurations:
+                    x3.append(config[0])
+                    y3.append(config[1])
+                ax1[0].plot(x3, y3, 'r')
+
         ax1[0].plot(x, y, 'g')
         path = np.append(path, np.array([np.asarray(x).T, np.asarray(y).T]), axis=1)
 
