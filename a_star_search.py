@@ -65,7 +65,7 @@ class AStar:
             '''
 
 
-            if self.dist(node, goal) < 3 and abs(node[2] - goal[2]) < 0.01:
+            if self.dist(node, goal) < 5 and abs(node[2] - goal[2]) < 0.01:
                 #print("goal", goal)
                 print("node", node)
                 #print("Found path")

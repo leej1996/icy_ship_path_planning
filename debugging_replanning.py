@@ -65,6 +65,7 @@ if __name__ == '__main__':
     # initialize goal for stopping condition
     snapped_goal = goal_pos
 
+    step = 0
     # run a star until goal node is exactly reached
     while (
             AStar.dist(curr_pos, snapped_goal) >= 1e-3
@@ -97,7 +98,7 @@ if __name__ == '__main__':
 
         # run search
         worked, new_path, nodes_visited, x1, y1, x2, y2, orig_path = \
-            a_star.search(new_start, snapped_goal, cardinal_swaths, ordinal_swaths, smooth_path=False)
+            a_star.search(new_start, snapped_goal, cardinal_swaths, ordinal_swaths, smooth_path)
 
         if new_path != "Fail":
             new_path.reverse()
@@ -109,6 +110,8 @@ if __name__ == '__main__':
 
             fig, ax = plt.subplots(1, figsize=(5, 10))
             plot_path(ax, new_path, costmap_obj.cost_map, ship)
+            # plt.savefig(str(step) + ".png")
+            # step += 1
             plt.show()
         else:
             exit(1)

@@ -67,7 +67,8 @@ def generate_swath(ship: Ship, edge_set: np.ndarray, heading: int, prim: Primiti
     return swath_set
 
 
-def snap_to_lattice(start_pos, goal_pos, initial_heading, turning_radius):
+def snap_to_lattice(start_pos, goal_pos, initial_heading, turning_radius,
+                    abs_init_heading=None, abs_goal_heading=None):
     # Rotate goal to lattice coordinate system
     R = np.asarray([
         [np.cos(initial_heading), -np.sin(initial_heading)],
@@ -80,8 +81,10 @@ def snap_to_lattice(start_pos, goal_pos, initial_heading, turning_radius):
     diff_x = difference[0][0] % turning_radius
 
     # determine difference in heading
-    abs_init_heading = heading_to_world_frame(start_pos[2], initial_heading)
-    abs_goal_heading = heading_to_world_frame(goal_pos[2], initial_heading)
+    abs_init_heading = \
+        heading_to_world_frame(start_pos[2], initial_heading) if abs_init_heading is None else abs_init_heading
+    abs_goal_heading = \
+        heading_to_world_frame(goal_pos[2], initial_heading) if abs_goal_heading is None else abs_goal_heading
     diff = abs_goal_heading - abs_init_heading
 
     if diff < 0:
@@ -139,6 +142,7 @@ def create_polygon(space, staticBody, vertices, x, y, density, radius):
     space.add(pivot, gear)
     return shape
 
+
 def generate_path_traj(path):
     heading_list = np.zeros(np.shape(path)[0])
     vel_path = np.zeros((np.shape(path)[0] - 1, np.shape(path)[1]))
@@ -178,7 +182,7 @@ def generate_path_traj(path):
             direction = -abs(raw) / raw
         angular_vel[i] = direction * turn * 30
 
-    return(vel_path, angular_vel)
+    return (vel_path, angular_vel)
 
 
 def pi_clip(angle):
@@ -329,7 +333,7 @@ def main():
           "\n\twith smoothing: {:.4f}"
           "\n\tstraight path:  {:.4f}\n".format(og_length, smooth_length, straight_length))
     try:
-        assert smoothed_cost <= recomputed_original_cost <= straight_path_cost,\
+        assert smoothed_cost <= recomputed_original_cost <= straight_path_cost, \
             "smoothed cost should be less than original cost and original cost should be less than straight cost"
     except AssertionError as error:
         print(error)
@@ -407,7 +411,8 @@ def main():
             ax2.plot(path.T[0], path.T[1], 'r')
         return []
 
-    def animate(dt, ship_patch, ship, polygons, patch_list, vel_list, ang_vel_list, path, fig1, ordinal_swaths, cardinal_swaths):
+    def animate(dt, ship_patch, ship, polygons, patch_list, vel_list, ang_vel_list, path,
+                fig1, ordinal_swaths, cardinal_swaths):
         # print(dt)
         # 20 ms step size
         for x in range(10):
@@ -428,11 +433,11 @@ def main():
 
         if (dt % 50  == 0 and dt != 0 and replan):
             print("\nNEXT STEP")
-            curr_pos = (ship_pos[0], ship_pos[1], ship.body.angle)
-            snapped_goal = snap_to_lattice(curr_pos, goal_pos, ship.initial_heading, turning_radius)  # FIXME
-            curr_pos = (ship_pos[0], ship_pos[1], 0)  # straight ahead of boat is 0
-
             ship.initial_heading = ship.body.angle + a_star.first_initial_heading
+            curr_pos = (ship_pos[0], ship_pos[1], 0)  # straight ahead of boat is 0
+            snapped_goal = snap_to_lattice(curr_pos, goal_pos, ship.initial_heading, turning_radius,
+                                           abs_init_heading=ship.initial_heading)
+
             prim.rotate(ship.body.angle, orig=True)
 
             ordinal_swaths, cardinal_swaths = prim.update_swath(theta=ship.body.angle,
@@ -523,7 +528,8 @@ def main():
                                    animate,
                                    init_func=init,
                                    frames=frames,
-                                   fargs=(ship_patch, ship, polygons, patch_list, vel_path, angular_vel, path, fig1, ordinal_swaths, cardinal_swaths, ),
+                                   fargs=(ship_patch, ship, polygons, patch_list, vel_path, angular_vel, path,
+                                          fig1, ordinal_swaths, cardinal_swaths, ),
                                    interval=20,
                                    blit=True,
                                    repeat=False)
