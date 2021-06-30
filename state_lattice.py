@@ -21,6 +21,7 @@ from cost_map import CostMap
 from primitives import Primitives
 from ship import Ship
 from utils import heading_to_world_frame
+from pure_pursuit import TargetCourse, State
 
 
 def generate_swath(ship: Ship, edge_set: np.ndarray, heading: int, prim: Primitives) -> dict:
@@ -180,6 +181,15 @@ def generate_path_traj(path):
     return(vel_path, angular_vel)
 
 
+def pi_clip(angle):
+    if angle > 0:
+        if angle > math.pi:
+            return angle - 2*math.pi
+    else:
+        if angle < -math.pi:
+            return angle + 2*math.pi
+    return angle
+
 # FIXME: improve
 def plot_path(fig1, costmap_obj, smoothed_edge_path, initial_heading, turning_radius, smooth_path, prim, x1, x2, y1, y2, node_plot, nodes_visited):
     plt.close(fig1)
@@ -255,8 +265,8 @@ def main():
                               [-1, -4],
                               [-1, 3]])
     obstacle_penalty = 3
-    vel_scale = 2
-    ang_vel_scale = 10
+    vel_scale = 5
+    ang_vel_scale = 20
     start_pos = (20, 10, 0)  # (x, y, theta), possible values for theta 0 - 7 measured from ships positive x axis
     goal_pos = (20, 282, 0)
     print("GOAL", goal_pos)
@@ -368,15 +378,21 @@ def main():
 
     path = path.T
     vel_path, angular_vel = generate_path_traj(path)
-
+    # From pure pursuit
+    state = State(x=start_pos[0], y=start_pos[1], yaw=0.0, v=0.0)
+    target_course = TargetCourse(path.T[0], path.T[1])
+    target_ind = target_course.search_target_index(state)
 
     fig2 = plt.figure()
     ax2 = plt.axes(xlim=(0, m), ylim=(0, n))
     ax2.set_aspect("equal")
-    Kp = 0.01 * ang_vel_scale
-    Ki = 0.002 * ang_vel_scale
+
+    # Gains for PID
+    Kp = 0.5
+    Ki = 0.1
     Kd = 0
-    pid = PID(Kp, Ki, Kd, path[0][2])
+    pid = PID(Kp, Ki, Kd, 0)
+    # pid.error_map = pi_clip
     pid.output_limits = (-0.01309 * ang_vel_scale, 0.01309 * ang_vel_scale)  # set limits at (-45 deg/min, 45 deg/min) as max angular velocity
 
     def init():
@@ -392,12 +408,14 @@ def main():
             space.step(2 / 100 / 10)
 
         ship_pos = (ship.body.position.x, ship.body.position.y)
-        # pid.setpoint = path[ship.path_pos][2]
-        # print("Current heading", ship.body.angle)
-        # print("ERROR", -math.pi/2 - ship.body.angle)
-        output = pid(ship.body.angle)
-        # print("OUTPUT", output)
-        # ship.body.angular_velocity = output
+
+        # Pymunk takes left turn as negative and right turn as positive in ship.body.angle
+        # To get proper error, we must flip the sign on the angle, as to calculate the setpoint,
+        # we look at a point one lookahead distance ahead, and find the angle to that point with
+        # arctan2, but using this, we will get positive values on the left and negative values on the right
+        # As the angular velocity in pymunk uses the same convention as ship.body.angle, we must flip the sign
+        # of the output as well
+        output = -pid(-ship.body.angle)
 
         '''
         if (dt % 50  == 0 and dt != 0):
@@ -424,11 +442,13 @@ def main():
             print("PLAN TIME", t1)
             if worked:
                 print("Replanned Path", smoothed_edge_path)
+                
                 path = plot_path(ax1, costmap_obj, smoothed_edge_path, initial_heading, turning_radius, smooth_path, prim, x1, x2, y1, y2)
                 path = path.T
                 vel_list, ang_vel_list = generate_path_traj(path)
                 print(np.shape(vel_path))
                 ship.set_path_pos(0)
+                
                 costmap_obj.update(polygons)
                 node_plot = np.zeros((n, m))
                 fig1, _, node_plot, ax1 = plot_path(fig1, costmap_obj, smoothed_edge_path, ship.initial_heading, turning_radius, smooth_path, prim, x1, x2, y1, y2, node_plot, nodes_visited)
@@ -438,21 +458,41 @@ def main():
 
         # determine which part of the path ship is on and get translational/angular velocity for ship
         if ship.path_pos < np.shape(vel_list)[0]:
+            # Translate linear velocity () into direction of ship
             x_vel = math.sin(ship.body.angle)
             y_vel = math.cos(ship.body.angle)
             mag = math.sqrt(x_vel**2 + y_vel ** 2)
             x_vel = x_vel / mag * vel_scale
             y_vel = y_vel / mag * vel_scale
             ship.body.velocity = Vec2d(x_vel, y_vel)
-            # ship.body.angular_velocity = ang_vel_list[ship.path_pos]
+
+            # Assign output of PID controller to angular velocity
             ship.body.angular_velocity = output
-            
-            if a_star.dist(ship_pos, path[ship.path_pos, :]) < 0.01:
-                ship.set_path_pos(ship.path_pos + 1)
-                print("PATH POS", ship.path_pos)
-                pid.setpoint = path[ship.path_pos][2]
-                print("TRACK ANGLE", path[ship.path_pos][2])
-        # '''
+
+            # Update the pure pursuit state
+            state.update(ship.body.position.x, ship.body.position.y, ship.body.angle)
+
+            # Get look ahead index
+            ind = target_course.search_target_index(state)
+
+            if ind != ship.path_pos:
+                # Find heading from current position to look ahead point
+                ship.set_path_pos(ind)
+                dy = path[ind][1] - ship.body.position.y
+                dx = path[ind][0] - ship.body.position.x
+                angle = np.arctan2(dy, dx) - math.pi/2
+
+                # encase angle between -pi and pi
+                if angle > 0:
+                    if angle > math.pi:
+                        return angle - 2*math.pi
+                else:
+                    if angle < -math.pi:
+                        return angle + 2*math.pi
+
+                # set setpoint for PID controller
+                pid.setpoint = angle
+
         animate_ship(dt, ship, ship_patch)
         for poly, patch in zip(polygons, patch_list):
             animate_obstacle(dt, poly, patch)
