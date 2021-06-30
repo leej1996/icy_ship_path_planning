@@ -270,12 +270,13 @@ def main():
                               [-1, -4],
                               [-1, 3]])
     obstacle_penalty = 3
-    vel_scale = 5
-    ang_vel_scale = 20
+    vel_scale = 10
+    ang_vel_scale = 40
     start_pos = (20, 10, 0)  # (x, y, theta), possible values for theta 0 - 7 measured from ships positive x axis
     goal_pos = (20, 282, 0)
     print("GOAL", goal_pos)
     smooth_path = False
+    replan = False
 
     # load costmap object from file if specified
     if load_costmap_file:
@@ -391,17 +392,19 @@ def main():
     ax2.set_aspect("equal")
 
     # Gains for PID
-    Kp = 0.3
+    Kp = 3
     Ki = 0.08
-    Kd = 0
+    Kd = 0.5
     pid = PID(Kp, Ki, Kd, 0)
     # pid.error_map = pi_clip
-    pid.output_limits = (-0.01309 * ang_vel_scale, 0.01309 * ang_vel_scale)  # set limits at (-45 deg/min, 45 deg/min) as max angular velocity
-
+    # pid.output_limits = (-0.01309 * ang_vel_scale, 0.01309 * ang_vel_scale)  # set limits at (-45 deg/min, 45 deg/min) as max angular velocity
+    pid.output_limits = (-1, 1)
     def init():
         ax2.add_patch(ship_patch)
         for patch in patch_list:
             ax2.add_patch(patch)
+        if not replan:
+            ax2.plot(path.T[0], path.T[1], 'r')
         return []
 
     def animate(dt, ship_patch, ship, polygons, patch_list, vel_list, ang_vel_list, path, fig1, ordinal_swaths, cardinal_swaths):
@@ -420,9 +423,10 @@ def main():
         # of the output as well
         output = -pid(-ship.body.angle)
 
-        print("CURRENT HEADING", ship.body.angle)
-        print("COURSE CORRECTION", output)
-        if (dt % 50  == 0 and dt != 0):
+        # print("CURRENT HEADING", ship.body.angle)
+        # print("COURSE CORRECTION", output)
+
+        if (dt % 50  == 0 and dt != 0 and replan):
             print("\nNEXT STEP")
             curr_pos = (ship_pos[0], ship_pos[1], ship.body.angle)
             snapped_goal = snap_to_lattice(curr_pos, goal_pos, ship.initial_heading, turning_radius)  # FIXME
@@ -453,7 +457,6 @@ def main():
                 ship.set_path_pos(0)
                 target_course.update(path.T[0], path.T[1])
 
-
         # determine which part of the path ship is on and get translational/angular velocity for ship
         if ship.path_pos < np.shape(path)[0]:
             # Translate linear velocity () into direction of ship
@@ -472,7 +475,8 @@ def main():
 
             # Get look ahead index
             ind = target_course.search_target_index(state)
-            print("TARGET", path[ind])
+            # print("TARGET", path[ind])
+            # print(ship_pos)
 
             if ind != ship.path_pos:
                 # Find heading from current position to look ahead point
@@ -481,15 +485,15 @@ def main():
                 dx = path[ind][0] - ship.body.position.x
                 angle = np.arctan2(dy, dx) - math.pi/2
                 # encase angle between -pi and pi
-                print("ANGLE", angle)
+                # print("ANGLE", angle)
                 if angle > 0:
                     if angle > math.pi:
                         angle = angle - 2*math.pi
-                        print(angle)
+                        # print(angle)
                 else:
                     if angle < -math.pi:
                         angle = angle + 2*math.pi
-                        print(angle)
+                        # print(angle)
 
                 # set setpoint for PID controller
                 pid.setpoint = angle
