@@ -67,10 +67,12 @@ class Primitives:
         self.orig_edge_set_ordinal = self.edge_set_ordinal
         self.orig_edge_set_cardinal = self.edge_set_cardinal
 
-    def view(self, theta: float = None, save_fig_prefix="primitives_", turning_radius: float = 1):
+    def view(self, theta: float = None, save_fig_prefix="primitives_", turning_radius: float = None):
         """ plots all the primitives in the edge point_set """
         if theta is None:
             theta = self.initial_heading
+        if turning_radius is None:
+            turning_radius = self.scale
         arrow_length = 0.2 * turning_radius
         for edge_set, name in zip([self.edge_set_ordinal, self.edge_set_cardinal],
                                   ['ordinal', 'cardinal']):

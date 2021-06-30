@@ -280,7 +280,7 @@ def main():
     goal_pos = (20, 282, 0)
     print("GOAL", goal_pos)
     smooth_path = False
-    replan = False
+    replan = True
 
     # load costmap object from file if specified
     if load_costmap_file:
@@ -344,7 +344,8 @@ def main():
     # '''
     # FIXME: why regenerate again, can't we just do this in the smoothing step????
     if worked:
-        fig1, path = plot_path(fig1, costmap_obj, smoothed_edge_path, initial_heading, turning_radius, smooth_path, prim, x1, x2, y1, y2, nodes_visited)
+        fig1, path = plot_path(fig1, costmap_obj, smoothed_edge_path, initial_heading, turning_radius,
+                                             smooth_path, prim, x1, x2, y1, y2, nodes_visited)
     else:
         path = 0
     '''
@@ -428,19 +429,22 @@ def main():
         # of the output as well
         output = -pid(-ship.body.angle)
 
+        print("ERROR", pid.setpoint - (- ship.body.angle))
         # print("CURRENT HEADING", ship.body.angle)
         # print("COURSE CORRECTION", output)
 
         if (dt % 50  == 0 and dt != 0 and replan):
             print("\nNEXT STEP")
-            ship.initial_heading = ship.body.angle + a_star.first_initial_heading
+            ship.initial_heading = -ship.body.angle + a_star.first_initial_heading
             curr_pos = (ship_pos[0], ship_pos[1], 0)  # straight ahead of boat is 0
             snapped_goal = snap_to_lattice(curr_pos, goal_pos, ship.initial_heading, turning_radius,
                                            abs_init_heading=ship.initial_heading)
 
-            prim.rotate(ship.body.angle, orig=True)
+            print("hello")
+            prim.rotate(-ship.body.angle, orig=True)
+            print("hi")
 
-            ordinal_swaths, cardinal_swaths = prim.update_swath(theta=ship.body.angle,
+            ordinal_swaths, cardinal_swaths = prim.update_swath(theta=-ship.body.angle,
                                                                 ord_swath=ordinal_swaths,
                                                                 card_swath=cardinal_swaths)
 
@@ -461,6 +465,9 @@ def main():
 
                 ship.set_path_pos(0)
                 target_course.update(path.T[0], path.T[1])
+                state.update(ship.body.position.x, ship.body.position.y, ship.body.angle)
+                plt.show(block=False)
+                # print("got out")
 
         # determine which part of the path ship is on and get translational/angular velocity for ship
         if ship.path_pos < np.shape(path)[0]:
@@ -482,15 +489,18 @@ def main():
             ind = target_course.search_target_index(state)
             # print("TARGET", path[ind])
             # print(ship_pos)
+            # print(ind, ship.path_pos)
+            print("TARGET", path[ind])
+            # print(ship_pos)
 
             if ind != ship.path_pos:
                 # Find heading from current position to look ahead point
                 ship.set_path_pos(ind)
                 dy = path[ind][1] - ship.body.position.y
                 dx = path[ind][0] - ship.body.position.x
-                angle = np.arctan2(dy, dx) - math.pi/2
+                angle = np.arctan2(dy, dx) - a_star.first_initial_heading
                 # encase angle between -pi and pi
-                # print("ANGLE", angle)
+                print("ANGLE", angle)
                 if angle > 0:
                     if angle > math.pi:
                         angle = angle - 2*math.pi
