@@ -191,7 +191,7 @@ def pi_clip(angle):
     return angle
 
 # FIXME: improve
-def plot_path(fig1, costmap_obj, smoothed_edge_path, initial_heading, turning_radius, smooth_path, prim, x1, x2, y1, y2, node_plot, nodes_visited):
+def plot_path(fig1, costmap_obj, smoothed_edge_path, initial_heading, turning_radius, smooth_path, prim, x1, x2, y1, y2, nodes_visited):
     plt.close(fig1)
     fig1, ax1 = plt.subplots(1, 2, figsize=(5, 10))
     ax1[0].imshow(costmap_obj.cost_map, origin='lower')
@@ -243,12 +243,17 @@ def plot_path(fig1, costmap_obj, smoothed_edge_path, initial_heading, turning_ra
     ax1[0].plot(x1, y1, 'bx')
     ax1[0].plot(x2, y2, 'gx')
 
+    node_plot = create_node_plot(costmap_obj.n, costmap_obj.m, nodes_visited)
+    ax1[1].imshow(node_plot, origin='lower')
+    return fig1, path
+
+
+def create_node_plot(n, m, nodes_visited):
+    node_plot = np.zeros((n, m))
     for node in nodes_visited:
         r, c = int(round(node[1])), int(round(node[0]))
         node_plot[r, c] = node_plot[r, c] + 1
-
-    ax1[1].imshow(node_plot, origin='lower')
-    return fig1, path, node_plot, ax1
+    return node_plot
 
 
 def main():
@@ -333,12 +338,10 @@ def main():
 
     # '''
     # FIXME: why regenerate again, can't we just do this in the smoothing step????
-    node_plot = np.zeros((n, m))
     if worked:
-        fig1, path, node_plot, _ = plot_path(fig1, costmap_obj, smoothed_edge_path, initial_heading, turning_radius, smooth_path, prim, x1, x2, y1, y2, node_plot, nodes_visited)
+        fig1, path = plot_path(fig1, costmap_obj, smoothed_edge_path, initial_heading, turning_radius, smooth_path, prim, x1, x2, y1, y2, nodes_visited)
     else:
         path = 0
-
     '''
     node_plot = np.zeros((n, m))
     for node in nodes_visited:
@@ -388,8 +391,8 @@ def main():
     ax2.set_aspect("equal")
 
     # Gains for PID
-    Kp = 0.5
-    Ki = 0.1
+    Kp = 0.3
+    Ki = 0.08
     Kd = 0
     pid = PID(Kp, Ki, Kd, 0)
     # pid.error_map = pi_clip
@@ -417,7 +420,8 @@ def main():
         # of the output as well
         output = -pid(-ship.body.angle)
 
-        '''
+        print("CURRENT HEADING", ship.body.angle)
+        print("COURSE CORRECTION", output)
         if (dt % 50  == 0 and dt != 0):
             print("\nNEXT STEP")
             curr_pos = (ship_pos[0], ship_pos[1], ship.body.angle)
@@ -432,7 +436,6 @@ def main():
                                                                 card_swath=cardinal_swaths)
 
             print("INITIAL HEADING", ship.initial_heading)
-            print("ANGLE", ship.body.angle)
             print("NEW GOAL", snapped_goal)
             print("NEW START", curr_pos)
             t0 = time.clock()
@@ -442,22 +445,17 @@ def main():
             print("PLAN TIME", t1)
             if worked:
                 print("Replanned Path", smoothed_edge_path)
-                
-                path = plot_path(ax1, costmap_obj, smoothed_edge_path, initial_heading, turning_radius, smooth_path, prim, x1, x2, y1, y2)
-                path = path.T
-                vel_list, ang_vel_list = generate_path_traj(path)
-                print(np.shape(vel_path))
-                ship.set_path_pos(0)
-                
                 costmap_obj.update(polygons)
-                node_plot = np.zeros((n, m))
-                fig1, _, node_plot, ax1 = plot_path(fig1, costmap_obj, smoothed_edge_path, ship.initial_heading, turning_radius, smooth_path, prim, x1, x2, y1, y2, node_plot, nodes_visited)
-                # plt.show(block=False)
-                # print("got out")
-        '''
+                fig1, path = plot_path(fig1, costmap_obj, smoothed_edge_path, ship.initial_heading, turning_radius, smooth_path, prim, x1, x2, y1, y2, nodes_visited)
+                plt.show()
+                path = path.T
+
+                ship.set_path_pos(0)
+                target_course.update(path.T[0], path.T[1])
+
 
         # determine which part of the path ship is on and get translational/angular velocity for ship
-        if ship.path_pos < np.shape(vel_list)[0]:
+        if ship.path_pos < np.shape(path)[0]:
             # Translate linear velocity () into direction of ship
             x_vel = math.sin(ship.body.angle)
             y_vel = math.cos(ship.body.angle)
@@ -474,6 +472,7 @@ def main():
 
             # Get look ahead index
             ind = target_course.search_target_index(state)
+            print("TARGET", path[ind])
 
             if ind != ship.path_pos:
                 # Find heading from current position to look ahead point
@@ -481,14 +480,16 @@ def main():
                 dy = path[ind][1] - ship.body.position.y
                 dx = path[ind][0] - ship.body.position.x
                 angle = np.arctan2(dy, dx) - math.pi/2
-
                 # encase angle between -pi and pi
+                print("ANGLE", angle)
                 if angle > 0:
                     if angle > math.pi:
-                        return angle - 2*math.pi
+                        angle = angle - 2*math.pi
+                        print(angle)
                 else:
                     if angle < -math.pi:
-                        return angle + 2*math.pi
+                        angle = angle + 2*math.pi
+                        print(angle)
 
                 # set setpoint for PID controller
                 pid.setpoint = angle
