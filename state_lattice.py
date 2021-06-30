@@ -390,10 +390,11 @@ def main():
 
         if (dt % 50 == 0 and dt != 0):
             print("\nNEXT STEP")
-            curr_pos = (ship_pos[0], ship_pos[1], 0)  # straight ahead of boat is 0
-            snapped_goal = snap_to_lattice(curr_pos, goal_pos, ship.body.angle, turning_radius, abs_init_heading=0)
-
             ship.initial_heading = ship.body.angle + a_star.first_initial_heading
+            curr_pos = (ship_pos[0], ship_pos[1], 0)  # straight ahead of boat is 0
+            snapped_goal = snap_to_lattice(curr_pos, goal_pos, ship.initial_heading, turning_radius,
+                                           abs_init_heading=ship.initial_heading)
+
             prim.rotate(ship.body.angle, orig=True)
 
             ordinal_swaths, cardinal_swaths = prim.update_swath(theta=ship.body.angle,
