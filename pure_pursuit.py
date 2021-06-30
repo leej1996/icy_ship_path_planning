@@ -40,6 +40,11 @@ class TargetCourse:
         self.cy = cy
         self.old_nearest_point_index = None
 
+    def update(self, cx, cy):
+        self.cx = cx
+        self.cy = cy
+        self.old_nearest_point_index = None
+
     def search_target_index(self, state):
 
         # To speed up nearest point search, doing it at only first time.
