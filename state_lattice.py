@@ -23,6 +23,9 @@ from ship import Ship
 from utils import heading_to_world_frame
 from pure_pursuit import TargetCourse, State
 
+class Path:
+    def __init__(self, path: np.array):
+        self.path = path
 
 def generate_swath(ship: Ship, edge_set: np.ndarray, heading: int, prim: Primitives) -> dict:
     """
@@ -184,16 +187,6 @@ def generate_path_traj(path):
 
     return (vel_path, angular_vel)
 
-
-def pi_clip(angle):
-    if angle > 0:
-        if angle > math.pi:
-            return angle - 2*math.pi
-    else:
-        if angle < -math.pi:
-            return angle + 2*math.pi
-    return angle
-
 # FIXME: improve
 def plot_path(fig1, costmap_obj, smoothed_edge_path, initial_heading, turning_radius, smooth_path, prim, x1, x2, y1, y2, nodes_visited):
     plt.close(fig1)
@@ -344,7 +337,7 @@ def main():
     # '''
     # FIXME: why regenerate again, can't we just do this in the smoothing step????
     if worked:
-        fig1, path = plot_path(fig1, costmap_obj, smoothed_edge_path, initial_heading, turning_radius,
+        fig1, path_list = plot_path(fig1, costmap_obj, smoothed_edge_path, initial_heading, turning_radius,
                                              smooth_path, prim, x1, x2, y1, y2, nodes_visited)
     else:
         path = 0
@@ -385,11 +378,13 @@ def main():
         )
         patch_list.append(patches.Polygon(obs['vertices'], True))
 
-    path = path.T
-    vel_path, angular_vel = generate_path_traj(path)
+    path_list = path_list.T
+
+    path = Path(path_list)
+
     # From pure pursuit
     state = State(x=start_pos[0], y=start_pos[1], yaw=0.0, v=0.0)
-    target_course = TargetCourse(path.T[0], path.T[1])
+    target_course = TargetCourse(path.path.T[0], path.path.T[1])
     target_ind = target_course.search_target_index(state)
 
     fig2 = plt.figure()
@@ -409,10 +404,10 @@ def main():
         for patch in patch_list:
             ax2.add_patch(patch)
         if not replan:
-            ax2.plot(path.T[0], path.T[1], 'r')
+            ax2.plot(path.path.T[0], path.path.T[1], 'r')
         return []
 
-    def animate(dt, ship_patch, ship, polygons, patch_list, vel_list, ang_vel_list, path,
+    def animate(dt, ship_patch, ship, polygons, patch_list, path,
                 fig1, ordinal_swaths, cardinal_swaths):
         # print(dt)
         # 20 ms step size
@@ -429,10 +424,6 @@ def main():
         # of the output as well
         output = -pid(-ship.body.angle)
 
-        print("ERROR", pid.setpoint - (- ship.body.angle))
-        # print("CURRENT HEADING", ship.body.angle)
-        # print("COURSE CORRECTION", output)
-
         if (dt % 50  == 0 and dt != 0 and replan):
             print("\nNEXT STEP")
             ship.initial_heading = -ship.body.angle + a_star.first_initial_heading
@@ -440,9 +431,7 @@ def main():
             snapped_goal = snap_to_lattice(curr_pos, goal_pos, ship.initial_heading, turning_radius,
                                            abs_init_heading=ship.initial_heading)
 
-            print("hello")
             prim.rotate(-ship.body.angle, orig=True)
-            print("hi")
 
             ordinal_swaths, cardinal_swaths = prim.update_swath(theta=-ship.body.angle,
                                                                 ord_swath=ordinal_swaths,
@@ -459,18 +448,17 @@ def main():
             if worked:
                 print("Replanned Path", smoothed_edge_path)
                 costmap_obj.update(polygons)
-                fig1, path = plot_path(fig1, costmap_obj, smoothed_edge_path, ship.initial_heading, turning_radius, smooth_path, prim, x1, x2, y1, y2, nodes_visited)
+                fig1, path_list = plot_path(fig1, costmap_obj, smoothed_edge_path, ship.initial_heading, turning_radius, smooth_path, prim, x1, x2, y1, y2, nodes_visited)
                 plt.show()
-                path = path.T
-
+                path_list = path_list.T
+                path.path = path_list
                 ship.set_path_pos(0)
-                target_course.update(path.T[0], path.T[1])
+                target_course.update(path.path.T[0], path.path.T[1])
                 state.update(ship.body.position.x, ship.body.position.y, ship.body.angle)
                 plt.show(block=False)
-                # print("got out")
 
         # determine which part of the path ship is on and get translational/angular velocity for ship
-        if ship.path_pos < np.shape(path)[0]:
+        if ship.path_pos < np.shape(path.path)[0]:
             # Translate linear velocity () into direction of ship
             x_vel = math.sin(ship.body.angle)
             y_vel = math.cos(ship.body.angle)
@@ -487,29 +475,13 @@ def main():
 
             # Get look ahead index
             ind = target_course.search_target_index(state)
-            # print("TARGET", path[ind])
-            # print(ship_pos)
-            # print(ind, ship.path_pos)
-            print("TARGET", path[ind])
-            # print(ship_pos)
 
             if ind != ship.path_pos:
                 # Find heading from current position to look ahead point
                 ship.set_path_pos(ind)
-                dy = path[ind][1] - ship.body.position.y
-                dx = path[ind][0] - ship.body.position.x
+                dy = path.path[ind][1] - ship.body.position.y
+                dx = path.path[ind][0] - ship.body.position.x
                 angle = np.arctan2(dy, dx) - a_star.first_initial_heading
-                # encase angle between -pi and pi
-                print("ANGLE", angle)
-                if angle > 0:
-                    if angle > math.pi:
-                        angle = angle - 2*math.pi
-                        # print(angle)
-                else:
-                    if angle < -math.pi:
-                        angle = angle + 2*math.pi
-                        # print(angle)
-
                 # set setpoint for PID controller
                 pid.setpoint = angle
 
@@ -533,12 +505,12 @@ def main():
         return patch_list
 
     print("START ANIMATION")
-    frames = np.shape(path)[0]
+    frames = np.shape(path.path)[0]
     anim = animation.FuncAnimation(fig2,
                                    animate,
                                    init_func=init,
                                    frames=frames,
-                                   fargs=(ship_patch, ship, polygons, patch_list, vel_path, angular_vel, path,
+                                   fargs=(ship_patch, ship, polygons, patch_list, path,
                                           fig1, ordinal_swaths, cardinal_swaths, ),
                                    interval=20,
                                    blit=True,
