@@ -272,7 +272,7 @@ def main():
     start_pos = (20, 10, 0)  # (x, y, theta), possible values for theta 0 - 7 measured from ships positive x axis
     goal_pos = (20, 282, 0)
     print("GOAL", goal_pos)
-    smooth_path = False
+    smooth_path = True
     replan = True
 
     # load costmap object from file if specified
