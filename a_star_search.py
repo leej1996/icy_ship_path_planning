@@ -69,6 +69,10 @@ class AStar:
                 #print("goal", goal)
                 print("node", node)
                 #print("Found path")
+
+                # goal is not exactly the same as node, so when we search for goal (key)
+                # in the dictionary, it has to be the same as node
+                goal = node
                 path = []
                 new_path_length = []
                 path.append(node)
