@@ -126,11 +126,11 @@ def snap_to_lattice(start_pos, goal_pos, initial_heading, turning_radius,
     return goal_pos
 
 
-def create_polygon(space, staticBody, vertices, x, y, density, radius):
+def create_polygon(space, staticBody, vertices, x, y, mass):
     body = pymunk.Body()
     body.position = (x, y)
-    shape = pymunk.Poly(body, vertices, radius=radius)
-    shape.density = density
+    shape = pymunk.Poly(body, vertices)
+    shape.mass = mass
     space.add(body, shape)
 
     # create pivot constraint to simulate linear friction
@@ -259,13 +259,12 @@ def main():
     n = 300
     m = 40
     initial_heading = math.pi / 2
-    density = 3
+    mass_factor = 3
     turning_radius = 8  # 300 m turn radius
-    ship_vertices = np.array([[0, 4],
-                              [1, 3],
-                              [1, -4],
+    ship_vertices = np.array([[1, 4],
+                              [-1, 4],
                               [-1, -4],
-                              [-1, 3]])
+                              [1, -4]])
     obstacle_penalty = 3
     vel_scale = 10
     ang_vel_scale = 40
@@ -274,6 +273,7 @@ def main():
     print("GOAL", goal_pos)
     smooth_path = False
     replan = True
+    # plt.ion()
 
     # load costmap object from file if specified
     if load_costmap_file:
@@ -374,7 +374,7 @@ def main():
     for obs in costmap_obj.obstacles:
         polygons.append(
             create_polygon(space, staticBody, (obs['vertices'] - np.array(obs['centre'])).tolist(),
-                           *obs['centre'], density, obs['radius'])
+                           *obs['centre'], mass=mass_factor * obs['radius'] ** 3)  # assuming mass is proportional to r^3
         )
         patch_list.append(patches.Polygon(obs['vertices'], True))
 
@@ -456,9 +456,10 @@ def main():
                 target_course.update(path.path.T[0], path.path.T[1])
                 state.update(ship.body.position.x, ship.body.position.y, ship.body.angle)
                 plt.show(block=False)
+                # plt.pause(0.001)
 
         # determine which part of the path ship is on and get translational/angular velocity for ship
-        if ship.path_pos < np.shape(path.path)[0]:
+        if ship.path_pos < np.shape(path.path)[0] - 1:
             # Translate linear velocity () into direction of ship
             x_vel = math.sin(ship.body.angle)
             y_vel = math.cos(ship.body.angle)

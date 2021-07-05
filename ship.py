@@ -16,7 +16,7 @@ class Ship:
         assert self.max_ship_length != 0, 'ship length cannot be 0'
 
         # setup for pymunk
-        self.body = pymunk.Body(1, 100, body_type=pymunk.Body.KINEMATIC)
+        self.body = pymunk.Body(body_type=pymunk.Body.KINEMATIC)  # mass and moment ignored when kinematic body type
         self.body.position = start_pos[:2]
         self.body.velocity = Vec2d(0, 0)
         self.body.angle = 0

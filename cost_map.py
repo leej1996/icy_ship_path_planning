@@ -54,6 +54,9 @@ class CostMap:
                 # generate polygon
                 polygon = self.generate_polygon(diameter=r * 2, origin=(x, y))
 
+                # compute radius from polygon (note this might be slightly different than the original sampled r)
+                r = self.compute_polygon_diameter(polygon) / 2
+
                 # compute the cost and update the costmap
                 if self.populate_costmap(centre_coords=(x, y), radius=r, polygon=polygon):
                     # add the polygon to obstacles list if it is feasible
@@ -269,13 +272,16 @@ class CostMap:
                 [v.rotated(obs.body.angle) + obs.body.position for v in obs.get_vertices()]
             ).astype(int)
 
+            # recompute the obstacle radius
+            r = self.compute_polygon_diameter(poly_vertices) / 2
+
             # compute the cost and update the costmap
-            if self.populate_costmap(centre_coords=list(obs.body.position), radius=obs.radius, polygon=poly_vertices):
+            if self.populate_costmap(centre_coords=list(obs.body.position), radius=r, polygon=poly_vertices):
                 # add the polygon to obstacles list if it is feasible
                 self.obstacles.append({
                     'vertices': poly_vertices,
                     'centre': list(obs.body.position),
-                    'radius': obs.radius
+                    'radius': r
                 })
 
     def save_to_disk(self) -> None:
@@ -285,6 +291,11 @@ class CostMap:
             with open(fp, "wb") as fd:
                 pickle.dump(self, fd)
                 print("Successfully saved costmap object to file path '{}'".format(fp))
+
+    @staticmethod
+    def compute_polygon_diameter(vertices) -> float:
+        dist = lambda a, b: np.sqrt((a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2)
+        return max(dist(a, b) for a in vertices for b in vertices)
 
 
 def main():
