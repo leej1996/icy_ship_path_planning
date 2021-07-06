@@ -269,7 +269,7 @@ class CostMap:
         # update obstacles based on new positions
         for obs in obstacles:
             poly_vertices = np.asarray(
-                [v.rotated(obs.body.angle) + obs.body.position for v in obs.get_vertices()]
+                [v.rotated(-obs.body.angle) + obs.body.position for v in obs.get_vertices()]
             ).astype(int)
 
             # recompute the obstacle radius
