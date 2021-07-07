@@ -1,8 +1,6 @@
 import math
-import os
 import pickle
 import time
-import copy
 
 import dubins
 import numpy as np
@@ -12,66 +10,28 @@ from matplotlib import animation
 from matplotlib import patches
 from matplotlib import pyplot as plt
 from pymunk.vec2d import Vec2d
-from skimage import draw
-from skimage import transform
 from simple_pid import PID
+from skimage import transform
 
 from a_star_search import AStar
 from cost_map import CostMap
 from primitives import Primitives
-from ship import Ship
-from utils import heading_to_world_frame
 from pure_pursuit import TargetCourse, State
+from ship import Ship
+import swath
+from utils import heading_to_world_frame
+
 
 class Path:
     def __init__(self, path: np.array):
         self.path = path
 
-def generate_swath(ship: Ship, edge_set: np.ndarray, heading: int, prim: Primitives) -> dict:
-    """
-    Will have key of (edge, start heading)
-    """
-    swath_set = {}
-    start_pos = [prim.max_prim + ship.max_ship_length // 2] * 2 + [heading]
-    print(start_pos)
 
-    for e in edge_set:
-        e = tuple(e)
-        array = np.zeros([(prim.max_prim + ship.max_ship_length // 2) * 2 + 1] * 2, dtype=bool)
-        translated_e = np.asarray(e) + np.array([start_pos[0], start_pos[1], 0])
-
-        theta_0 = heading_to_world_frame(start_pos[2], ship.initial_heading)
-        theta_1 = heading_to_world_frame(translated_e[2], ship.initial_heading)
-        dubins_path = dubins.shortest_path((start_pos[0], start_pos[1], theta_0),
-                                           (translated_e[0], translated_e[1], theta_1),
-                                           ship.turning_radius)
-
-        configurations, _ = dubins_path.sample_many(0.1)
-
-        for config in configurations:
-            x_cell = int(round(config[0]))
-            y_cell = int(round(config[1]))
-            theta = config[2] - ship.initial_heading
-            R = np.asarray([
-                [np.cos(theta), -np.sin(theta)],
-                [np.sin(theta), np.cos(theta)]
-            ])
-            rot_vi = np.round(np.array([[x_cell], [y_cell]]) + R @ ship.vertices.T).astype(int)
-
-            rr, cc = draw.polygon(rot_vi[1, :], rot_vi[0, :])
-            array[rr, cc] = True
-
-        # TODO: remove hardcode
-        swath_set[e, 0 + heading] = array
-        swath_set[e, 2 + heading] = np.flip(array.T, 1)  # Rotate 90 degrees CCW
-        swath_set[e, 4 + heading] = np.flip(np.flip(array, 1), 0)  # Rotate 180 degrees CCW
-        swath_set[e, 6 + heading] = np.flip(array.T, 0)  # Rotate 270 degrees CCW
-
-    return swath_set
-
-
-def snap_to_lattice(start_pos, goal_pos, initial_heading, turning_radius,
+def snap_to_lattice(start_pos, goal_pos, initial_heading, turning_radius, num_headings,
                     abs_init_heading=None, abs_goal_heading=None):
+    # compute the spacing between base headings
+    spacing = 2 * math.pi / num_headings
+
     # Rotate goal to lattice coordinate system
     R = np.asarray([
         [np.cos(initial_heading), -np.sin(initial_heading)],
@@ -84,17 +44,17 @@ def snap_to_lattice(start_pos, goal_pos, initial_heading, turning_radius,
     diff_x = difference[0][0] % turning_radius
 
     # determine difference in heading
-    abs_init_heading = \
-        heading_to_world_frame(start_pos[2], initial_heading) if abs_init_heading is None else abs_init_heading
-    abs_goal_heading = \
-        heading_to_world_frame(goal_pos[2], initial_heading) if abs_goal_heading is None else abs_goal_heading
+    abs_init_heading = heading_to_world_frame(start_pos[2], initial_heading, num_headings) \
+        if abs_init_heading is None else abs_init_heading
+    abs_goal_heading = heading_to_world_frame(goal_pos[2], initial_heading, num_headings) \
+        if abs_goal_heading is None else abs_goal_heading
     diff = abs_goal_heading - abs_init_heading
 
     if diff < 0:
         diff = diff + (2 * math.pi)
 
     # check if x,y coordinates or heading are off lattice
-    if diff_y != 0 or diff_x != 0 or diff % (math.pi / 4) != 0:
+    if diff_y != 0 or diff_x != 0 or diff % spacing != 0:
         if diff_y >= turning_radius / 2:
             new_goal_y = difference[1][0] + turning_radius - diff_y
         elif diff_y == 0:
@@ -110,9 +70,9 @@ def snap_to_lattice(start_pos, goal_pos, initial_heading, turning_radius,
             new_goal_x = difference[0][0] - diff_x
 
         # round to nearest cardinal/ordinal direction
-        new_theta = round(diff / (math.pi / 4))
-        if new_theta > 7:
-            new_theta = new_theta - 8
+        new_theta = round(diff / spacing)
+        if new_theta > num_headings - 1:
+            new_theta = new_theta - num_headings
 
         # rotate coordinates back to original frame
         new_goal = np.array([[new_goal_x], [new_goal_y]])
@@ -126,11 +86,11 @@ def snap_to_lattice(start_pos, goal_pos, initial_heading, turning_radius,
     return goal_pos
 
 
-def create_polygon(space, staticBody, vertices, x, y, mass):
+def create_polygon(space, staticBody, vertices, x, y, density):
     body = pymunk.Body()
     body.position = (x, y)
     shape = pymunk.Poly(body, vertices)
-    shape.mass = mass
+    shape.density = density
     space.add(body, shape)
 
     # create pivot constraint to simulate linear friction
@@ -146,49 +106,9 @@ def create_polygon(space, staticBody, vertices, x, y, mass):
     return shape
 
 
-def generate_path_traj(path):
-    heading_list = np.zeros(np.shape(path)[0])
-    vel_path = np.zeros((np.shape(path)[0] - 1, np.shape(path)[1]))
-    angular_vel = np.zeros(np.shape(vel_path)[0])
-
-    for i in range(np.shape(vel_path)[0]):
-        point1 = path[i, :]
-        point2 = path[i + 1, :]
-        velocity = point2 - point1
-        if velocity[0] == 0 or velocity[1] == 0:
-            if velocity[0] > 0:
-                heading = math.pi / 2
-            elif velocity[0] < 0:
-                heading = 3 * math.pi / 2
-            elif velocity[1] > 0:
-                heading = 0
-            else:
-                heading = math.pi
-        else:
-            heading = (math.atan2(velocity[1], velocity[0]) - math.pi / 2 + 2 * math.pi) % (2 * math.pi)  # FIXME: update
-        heading_list[i] = heading
-        # print("velocity: ", velocity, sep=" ")
-        vel_path[i, :] = velocity.T * 50
-        # print(tuple(vel_path[i,:]))
-
-    # set initial heading and final heading
-    heading_list[0] = 0
-    heading_list[-1] = 0
-
-    # Estimate angular velocity at each point from current and next heading
-    for i in range(np.shape(angular_vel)[0]):
-        raw = heading_list[i + 1] - heading_list[i]
-        turn = min((-abs(raw)) % (2 * math.pi), abs(raw) % (2 * math.pi))
-        if raw == 0:
-            direction = -1
-        else:
-            direction = -abs(raw) / raw
-        angular_vel[i] = direction * turn * 30
-
-    return (vel_path, angular_vel)
-
 # FIXME: improve
-def plot_path(fig1, costmap_obj, smoothed_edge_path, initial_heading, turning_radius, smooth_path, prim, x1, x2, y1, y2, nodes_visited):
+def plot_path(fig1, costmap_obj, smoothed_edge_path, initial_heading, turning_radius, smooth_path, prim, x1, x2, y1, y2,
+              nodes_visited, eps=1e-2):
     plt.close(fig1)
     fig1, ax1 = plt.subplots(1, 2, figsize=(5, 10))
     ax1[0].imshow(costmap_obj.cost_map, origin='lower')
@@ -198,11 +118,11 @@ def plot_path(fig1, costmap_obj, smoothed_edge_path, initial_heading, turning_ra
     for i in range(np.shape(PATH)[0] - 1):
         P1 = PATH[i]
         P2 = PATH[i + 1]
-        theta_0 = heading_to_world_frame(P1[2], initial_heading)
-        theta_1 = heading_to_world_frame(P2[2], initial_heading)
+        theta_0 = heading_to_world_frame(P1[2], initial_heading, prim.num_headings)
+        theta_1 = heading_to_world_frame(P2[2], initial_heading, prim.num_headings)
         dubins_path = dubins.shortest_path((P1[0], P1[1], theta_0),
                                            (P2[0], P2[1], theta_1),
-                                           turning_radius - 1e-4)
+                                           turning_radius - eps)
         configurations, _ = dubins_path.sample_many(0.2)
         # 0.01
         x = []
@@ -211,7 +131,7 @@ def plot_path(fig1, costmap_obj, smoothed_edge_path, initial_heading, turning_ra
         for config in configurations:
             x.append(config[0])
             y.append(config[1])
-            theta.append(config[2] - math.pi / 2)
+            theta.append(config[2] - math.pi / 2)  # FIXME
 
         if not smooth_path and False:  # only want to show primitives on un smoothed path
             if (P1[2] * 45) % 90 == 0:
@@ -219,9 +139,16 @@ def plot_path(fig1, costmap_obj, smoothed_edge_path, initial_heading, turning_ra
             else:
                 edge_set = prim.edge_set_ordinal
             for e in edge_set:
-                p2 = AStar.concat(P1, e)
-                theta_1 = heading_to_world_frame(p2[2], initial_heading) % (2 * math.pi)
-                dubins_path = dubins.shortest_path((P1[0], P1[1], theta_0), (p2[0], p2[1], theta_1), turning_radius - 0.001)
+                # find the base heading (e.g. cardinal or ordinal)
+                num_base_h = prim.num_headings // 4
+                arr = np.asarray([
+                    (P1[2] + num_base_h - h[2]) % num_base_h for h in prim.edge_set_dict.keys()
+                ])
+                base_heading = np.argwhere(arr == 0)[0, 0]
+                p2 = AStar.concat(P1, e, base_heading, prim.num_headings)
+                theta_1 = heading_to_world_frame(p2[2], initial_heading, prim.num_headings)
+                dubins_path = dubins.shortest_path((P1[0], P1[1], theta_0), (p2[0], p2[1], theta_1),
+                                                   turning_radius - eps)
                 configurations, _ = dubins_path.sample_many(0.2)
                 x3 = []
                 y3 = []
@@ -253,18 +180,19 @@ def create_node_plot(n, m, nodes_visited):
     return node_plot
 
 
+# TODO: move all param config to a separate method
 def main():
     load_costmap_file = ""  # "sample_costmaps/random_obstacles_1.pk"
     # Resolution is 10 m
     n = 300
     m = 40
     initial_heading = math.pi / 2
-    mass_factor = 3
     turning_radius = 8  # 300 m turn radius
     ship_vertices = np.array([[1, 4],
                               [-1, 4],
                               [-1, -4],
                               [1, -4]])
+    obstacle_density = 6
     obstacle_penalty = 3
     vel_scale = 10
     ang_vel_scale = 40
@@ -291,15 +219,10 @@ def main():
     ship = Ship(ship_vertices, start_pos, initial_heading, turning_radius)
     print("TURN RADIUS", ship.calc_turn_radius(45, 2))
     # get the primitives
-    prim = Primitives(scale=turning_radius, initial_heading=initial_heading)
+    prim = Primitives(scale=turning_radius, initial_heading=initial_heading, num_headings=16)
 
-    # generate swaths
-    ordinal_swaths = generate_swath(ship, prim.edge_set_ordinal, 1, prim)
-    cardinal_swaths = generate_swath(ship, prim.edge_set_cardinal, 0, prim)
-
-    # test_image = transform.rotate(ordinal_swaths[tuple(prim.edge_set_ordinal[0]), 1], -10)
-    # plt.imshow(test_image, origin='lower')
-    # plt.show()
+    # generate swath dict
+    swath_dict = swath.generate_swath(ship, prim)
 
     # initialize a star object
     a_star = AStar(g_weight=0.5, h_weight=0.5, cmap=costmap_obj,
@@ -307,16 +230,20 @@ def main():
 
     t0 = time.clock()
     worked, smoothed_edge_path, nodes_visited, x1, y1, x2, y2, orig_path = \
-        a_star.search(start_pos, goal_pos, cardinal_swaths, ordinal_swaths, smooth_path)
+        a_star.search(start_pos, goal_pos, swath_dict, smooth_path)
 
     t1 = time.clock() - t0
     print("Time elapsed: ", t1)
     print("Hz", 1 / t1)
     print("smoothed path", smoothed_edge_path)
 
-    recomputed_original_cost, og_length = costmap_obj.compute_path_cost(path=orig_path, ship=ship, reverse_path=True)
-    smoothed_cost, smooth_length = costmap_obj.compute_path_cost(path=smoothed_edge_path.copy(), ship=ship, reverse_path=True)
-    straight_path_cost, straight_length = costmap_obj.compute_path_cost(path=[start_pos, goal_pos], ship=ship)
+    recomputed_original_cost, og_length = costmap_obj.compute_path_cost(path=orig_path, ship=ship,
+                                                                        num_headings=prim.num_headings,
+                                                                        reverse_path=True)
+    smoothed_cost, smooth_length = costmap_obj.compute_path_cost(path=smoothed_edge_path.copy(), ship=ship,
+                                                                 num_headings=prim.num_headings, reverse_path=True)
+    straight_path_cost, straight_length = costmap_obj.compute_path_cost(path=[start_pos, goal_pos],
+                                                                        num_headings=prim.num_headings, ship=ship)
     print("\nPath cost:"
           "\n\toriginal path:  {:.4f}"
           "\n\twith smoothing: {:.4f}"
@@ -338,7 +265,7 @@ def main():
     # FIXME: why regenerate again, can't we just do this in the smoothing step????
     if worked:
         fig1, path_list = plot_path(fig1, costmap_obj, smoothed_edge_path, initial_heading, turning_radius,
-                                             smooth_path, prim, x1, x2, y1, y2, nodes_visited)
+                                    smooth_path, prim, x1, x2, y1, y2, nodes_visited)
     else:
         path = 0
     '''
@@ -373,8 +300,10 @@ def main():
     print("GENERATE OBSTACLES")
     for obs in costmap_obj.obstacles:
         polygons.append(
-            create_polygon(space, staticBody, (obs['vertices'] - np.array(obs['centre'])).tolist(),
-                           *obs['centre'], mass=mass_factor * obs['radius'] ** 3)  # assuming mass is proportional to r^3
+            create_polygon(
+                space, staticBody, (obs['vertices'] - np.array(obs['centre'])).tolist(),
+                *obs['centre'], density=obstacle_density
+            )
         )
         patch_list.append(patches.Polygon(obs['vertices'], True))
 
@@ -399,6 +328,7 @@ def main():
     # pid.error_map = pi_clip
     # pid.output_limits = (-0.01309 * ang_vel_scale, 0.01309 * ang_vel_scale)  # set limits at (-45 deg/min, 45 deg/min) as max angular velocity
     pid.output_limits = (-1, 1)
+
     def init():
         ax2.add_patch(ship_patch)
         for patch in patch_list:
@@ -408,7 +338,7 @@ def main():
         return []
 
     def animate(dt, ship_patch, ship, polygons, patch_list, path,
-                fig1, ordinal_swaths, cardinal_swaths):
+                fig1, swath_dict):
         # print(dt)
         # 20 ms step size
         for x in range(10):
@@ -424,31 +354,30 @@ def main():
         # of the output as well
         output = -pid(-ship.body.angle)
 
-        if (dt % 50  == 0 and dt != 0 and replan):
+        if (dt % 50 == 0 and dt != 0 and replan):
             print("\nNEXT STEP")
             ship.initial_heading = -ship.body.angle + a_star.first_initial_heading
             curr_pos = (ship_pos[0], ship_pos[1], 0)  # straight ahead of boat is 0
-            snapped_goal = snap_to_lattice(curr_pos, goal_pos, ship.initial_heading, turning_radius,
+            snapped_goal = snap_to_lattice(curr_pos, goal_pos, ship.initial_heading, turning_radius, prim.num_headings,
                                            abs_init_heading=ship.initial_heading)
 
             prim.rotate(-ship.body.angle, orig=True)
 
-            ordinal_swaths, cardinal_swaths = prim.update_swath(theta=-ship.body.angle,
-                                                                ord_swath=ordinal_swaths,
-                                                                card_swath=cardinal_swaths)
+            swath_dict = swath.update_swath(theta=-ship.body.angle, swath_dict=swath_dict)
 
             print("INITIAL HEADING", ship.initial_heading)
             print("NEW GOAL", snapped_goal)
             print("NEW START", curr_pos)
             t0 = time.clock()
             worked, smoothed_edge_path, nodes_visited, x1, y1, x2, y2, orig_path = \
-                a_star.search(curr_pos, snapped_goal, cardinal_swaths, ordinal_swaths, smooth_path)
+                a_star.search(curr_pos, snapped_goal, swath_dict, smooth_path)
             t1 = time.clock() - t0
             print("PLAN TIME", t1)
             if worked:
                 print("Replanned Path", smoothed_edge_path)
                 costmap_obj.update(polygons)
-                fig1, path_list = plot_path(fig1, costmap_obj, smoothed_edge_path, ship.initial_heading, turning_radius, smooth_path, prim, x1, x2, y1, y2, nodes_visited)
+                fig1, path_list = plot_path(fig1, costmap_obj, smoothed_edge_path, ship.initial_heading, turning_radius,
+                                            smooth_path, prim, x1, x2, y1, y2, nodes_visited)
                 plt.show()
                 path_list = path_list.T
                 path.path = path_list
@@ -463,7 +392,7 @@ def main():
             # Translate linear velocity () into direction of ship
             x_vel = math.sin(ship.body.angle)
             y_vel = math.cos(ship.body.angle)
-            mag = math.sqrt(x_vel**2 + y_vel ** 2)
+            mag = math.sqrt(x_vel ** 2 + y_vel ** 2)
             x_vel = x_vel / mag * vel_scale
             y_vel = y_vel / mag * vel_scale
             ship.body.velocity = Vec2d(x_vel, y_vel)
@@ -512,7 +441,7 @@ def main():
                                    init_func=init,
                                    frames=frames,
                                    fargs=(ship_patch, ship, polygons, patch_list, path,
-                                          fig1, ordinal_swaths, cardinal_swaths, ),
+                                          fig1, swath_dict,),
                                    interval=20,
                                    blit=True,
                                    repeat=False)

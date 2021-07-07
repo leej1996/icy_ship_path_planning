@@ -12,7 +12,7 @@ def heading_to_world_frame(heading: int, theta_0: float, num_headings: int):
     return (heading * 2 * math.pi / num_headings + theta_0) % (2 * math.pi)
 
 
-def plot_path(ax, path, cost_map, ship):
+def plot_path(ax, path, cost_map, ship, num_headings):
     x = []
     y = []
 
@@ -23,8 +23,8 @@ def plot_path(ax, path, cost_map, ship):
     for i in range(np.shape(path)[0] - 1):
         p1 = path[i]
         p2 = path[i + 1]
-        theta_0 = heading_to_world_frame(p1[2], ship.initial_heading)
-        theta_1 = heading_to_world_frame(p2[2], ship.initial_heading)
+        theta_0 = heading_to_world_frame(p1[2], ship.initial_heading, num_headings)
+        theta_1 = heading_to_world_frame(p2[2], ship.initial_heading, num_headings)
         dubins_path = dubins.shortest_path((p1[0], p1[1], theta_0),
                                            (p2[0], p2[1], theta_1),
                                            ship.turning_radius - 1e-3)

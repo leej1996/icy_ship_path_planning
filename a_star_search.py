@@ -1,5 +1,6 @@
 import math
 import time
+from typing import Tuple
 
 import dubins
 import numpy as np
@@ -10,6 +11,7 @@ from primitives import Primitives
 from priority_queue import CustomPriorityQueue
 from skimage import transform
 from ship import Ship
+from swath import Swath
 from utils import heading_to_world_frame
 
 
@@ -25,7 +27,7 @@ class AStar:
         self.ship = ship
         self.first_initial_heading = first_initial_heading
 
-    def search(self, start: tuple, goal: tuple, cardinal_swath: dict, ordinal_swath: dict, smooth_path: bool = True):
+    def search(self, start: tuple, goal: tuple, swath_dict: Swath, smooth_path: bool = True):
         free_path_interval = 1
         generation = 0  # number of nodes expanded
         # print("start", start)
@@ -48,27 +50,10 @@ class AStar:
             # print("GENERATION", generation)
             # print("NODE:", node)
 
-            # If ship past all obstacles, calc direct dubins path to goal
-            '''
-            if generation % free_path_interval == 0 and not (self.dist(node, goal) < 0.):
-                past_all_obs = all(
-                    self.past_obstacle(node, obs) for obs in self.cmap.obstacles
-                )
-
-                if past_all_obs:  # FIXME: we are not considering the costs of the channel boundaries here
-                    print("Found path to goal")
-                    cameFrom[goal] = node
-                    path_length[goal] = self.heuristic(node, goal)
-                    f_score[goal] = g_score[node] + path_length[goal]
-                    pred = goal
-                    node = pred            
-            '''
-
-
             if self.dist(node, goal) < 5 and abs(node[2] - goal[2]) < 0.01:
-                #print("goal", goal)
+                # print("goal", goal)
                 print("node", node)
-                #print("Found path")
+                # print("Found path")
 
                 # goal is not exactly the same as node, so when we search for goal (key)
                 # in the dictionary, it has to be the same as node
@@ -96,8 +81,8 @@ class AStar:
                     if add_nodes > 10:
                         add_nodes = 10
                     # t0 = time.clock()
-                    smooth_path, x1, y1, x2, y2 = path_smoothing(path, new_path_length, self.cmap,
-                                                                 start, goal, self.ship, add_nodes, dist_cuttoff=30)
+                    smooth_path, x1, y1, x2, y2 = path_smoothing(path, new_path_length, self.cmap, start, goal, self.ship,
+                                                                 add_nodes, self.primitives.num_headings, dist_cuttoff=30)
                     # t1 = time.clock() - t0
                     # print("smooth time", t1)
                 else:
@@ -115,17 +100,18 @@ class AStar:
             openSet.pop(node)
             closedSet.append(node)
 
-            if (node[2] * 45) % 90 == 0:
-                edge_set = self.primitives.edge_set_cardinal
-                swath_set = cardinal_swath
-                # print("CARDINAL")
-            else:
-                edge_set = self.primitives.edge_set_ordinal
-                swath_set = ordinal_swath
-                # print("ORDINAL")
+            # find the base heading (e.g. cardinal or ordinal)
+            num_base_h = self.primitives.num_headings // 4
+            arr = np.asarray([
+                (node[2] + num_base_h - h[2]) % num_base_h for h in self.primitives.edge_set_dict.keys()
+            ])
+            base_heading = np.argwhere(arr == 0)[0, 0]
+
+            # get the edge set based on the current node heading
+            edge_set = self.primitives.edge_set_dict[(0, 0, base_heading)]
 
             for e in edge_set:
-                neighbour = self.concat(node, e)
+                neighbour = self.concat(node, e, base_heading, self.primitives.num_headings)
                 # print("NEIGHBOUR",neighbour)
 
                 if neighbour[0] - self.ship.max_ship_length / 2 >= 0 and \
@@ -140,7 +126,7 @@ class AStar:
                     # If near obstacle, check cost map to find cost of swath
                     if self.near_obstacle(node, self.cmap.cost_map.shape, self.cmap.obstacles,
                                           threshold=self.ship.max_ship_length * 3):
-                        swath = self.get_swath(e, node, swath_set)
+                        swath = self.get_swath(e, node, swath_dict)
                         if type(swath) == str and swath == "Fail":
                             continue
                         mask = self.cmap.cost_map[swath]
@@ -182,12 +168,12 @@ class AStar:
         return False, 'Fail', 'Fail', 'Fail', 'Fail', 'Fail', 'Fail', 'Fail'
 
     # helper methods
-    def get_swath(self, e, start_pos, swath_set):
+    def get_swath(self, e, start_pos, swath_dict: Swath):  # FIXME
         swath = np.zeros_like(self.cmap.cost_map, dtype=bool)
         heading = int(start_pos[2])
         # raw_swath = swath_set[tuple(e), heading]
         # print(((self.first_initial_heading - self.ship.initial_heading) * (180 / math.pi)))
-        raw_swath = transform.rotate(swath_set[tuple(e), heading],
+        raw_swath = transform.rotate(swath_dict[tuple(e), heading],
                                      ((self.first_initial_heading - self.ship.initial_heading) * (180 / math.pi)))
         # swath mask has starting node at the centre and want to put at the starting node of currently expanded node
         # in the cmap, need to remove the extra columns/rows of the swath mask
@@ -238,44 +224,44 @@ class AStar:
         else:
             return swath
 
-    def heuristic(self, p_initial, p_final):
+    def heuristic(self, p_initial: Tuple, p_final: Tuple) -> float:
         """
         The Dubins' distance from initial to final points.
         """
-        theta_0 = heading_to_world_frame(p_initial[2], self.ship.initial_heading)
-        theta_1 = heading_to_world_frame(p_final[2], self.ship.initial_heading)
+        theta_0 = heading_to_world_frame(p_initial[2], self.ship.initial_heading, self.primitives.num_headings)
+        theta_1 = heading_to_world_frame(p_final[2], self.ship.initial_heading, self.primitives.num_headings)
         p1 = (p_initial[0], p_initial[1], theta_0)
         p2 = (p_final[0], p_final[1], theta_1)
         path = dubins.shortest_path(p1, p2, self.ship.turning_radius)
+
         return path.path_length()
 
     @staticmethod
-    def concat(x, y):
+    def concat(x: Tuple, y: Tuple, base_heading: int, num_headings: int) -> Tuple:
         """
         given two points x,y in the lattice, find the concatenation x + y
         """
-        rot = x[2] * math.pi / 4  # starting heading # TODO: hardcoded
+        # compute the spacing between base headings
+        spacing = 2 * math.pi / num_headings
+
+        # find the position and heading of the two points
         p1 = [x[0], x[1]]
-        p2_theta = y[2] * math.pi / 4  # edge heading
+        p1_theta = x[2] * spacing - spacing * base_heading  # starting heading
         p2 = [y[0], y[1]]
+        p2_theta = y[2] * spacing  # edge heading
 
-        # cardinal
-        heading = p2_theta + rot
-        if x[2] % 2 != 0:
-            # ordinal
-            heading = heading - math.pi / 4
-            rot = rot - math.pi / 4
-
-        R = np.array([[math.cos(rot), -math.sin(rot)],
-                      [math.sin(rot), math.cos(rot)]])
+        R = np.array([[math.cos(p1_theta), -math.sin(p1_theta)],
+                      [math.sin(p1_theta), math.cos(p1_theta)]])
         multiplication = np.matmul(R, np.transpose(np.asarray(p2)))
 
         result = np.asarray(p1) + multiplication
 
+        # compute the final heading after concatenating x and y
+        heading = p2_theta + x[2] * spacing - spacing * base_heading
         while heading >= 2 * math.pi:
             heading = heading - 2 * math.pi
-        heading = heading / (math.pi / 4)
-        #assert abs(heading - int(heading)) < 1e-4, "heading '{:4f}' should be an integer between 0-7".format(heading)
+        heading = heading / spacing
+        # assert abs(heading - int(heading)) < 1e-4, "heading '{:4f}' should be an integer between 0-7".format(heading)
 
         return round(result[0], 5), round(result[1], 5), int(heading)
 

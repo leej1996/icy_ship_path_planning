@@ -1,6 +1,7 @@
 from typing import Tuple, Dict
 
 import dubins
+import matplotlib.pyplot as plt
 import numpy as np
 from skimage.draw import draw
 
@@ -8,8 +9,10 @@ from primitives import Primitives
 from ship import Ship
 from utils import heading_to_world_frame
 
+Swath = Dict[Tuple, np.ndarray]
 
-def generate_swath(ship: Ship, prim: Primitives, eps=1e-5) -> Dict[Tuple, np.ndarray]:
+
+def generate_swath(ship: Ship, prim: Primitives, eps=1e-5) -> Swath:
     """
     Will have key of (edge, start heading)
     """
@@ -50,7 +53,7 @@ def generate_swath(ship: Ship, prim: Primitives, eps=1e-5) -> Dict[Tuple, np.nda
     return swath_dict
 
 
-def update_swath(theta: float, swath_dict: dict) -> Dict[Tuple, np.ndarray]:
+def update_swath(theta: float, swath_dict: Swath) -> Swath:
     R = np.asarray([
         [np.cos(theta), -np.sin(theta), 0],
         [np.sin(theta), np.cos(theta), 0],
@@ -61,3 +64,13 @@ def update_swath(theta: float, swath_dict: dict) -> Dict[Tuple, np.ndarray]:
     return {
         (tuple(np.round(k[0] @ R.T, 5)), k[1]): v for k, v in swath_dict.items()
     }
+
+
+def view_swath(swath_dict: Swath, key: Tuple = None) -> None:
+    if key is None:
+        # get a random key from swath dict
+        idx = np.random.randint(0, len(swath_dict), 1)[0]
+        key = list(swath_dict.keys())[idx]
+        print(key)
+    plt.imshow(swath_dict[key], origin='lower')
+    plt.show()

@@ -3,15 +3,17 @@ import math
 import numpy as np
 from matplotlib import pyplot as plt
 
+import swath
 from a_star_search import AStar
 from cost_map import CostMap
 from primitives import Primitives
 from ship import Ship
-from state_lattice import snap_to_lattice, generate_swath
+from state_lattice import snap_to_lattice
 from utils import heading_to_world_frame, plot_path
 
 if __name__ == '__main__':
     # Resolution is 10 m
+    num_headings = 16
     n = 300
     m = 40
     initial_heading = math.pi / 2
@@ -25,7 +27,7 @@ if __name__ == '__main__':
     obstacle_penalty = 3
     start_pos = (20, 34, 0)  # (x, y, theta), possible values for theta 0 - 7 measured from ships positive x axis
     goal_pos = snap_to_lattice(start_pos=start_pos, goal_pos=(20, 282, math.pi / 2 - initial_heading),
-                               initial_heading=initial_heading, turning_radius=turning_radius)
+                               initial_heading=initial_heading, turning_radius=turning_radius, num_headings=num_headings)
     print("Initial heading", initial_heading,
           "\nStart position", start_pos,
           "\nGoal position", goal_pos)
@@ -43,18 +45,17 @@ if __name__ == '__main__':
     # initialize ship object
     ship = Ship(ship_vertices, start_pos, initial_heading, turning_radius)
     # get the primitives
-    prim = Primitives(scale=turning_radius, initial_heading=initial_heading)
+    prim = Primitives(scale=turning_radius, initial_heading=initial_heading, num_headings=num_headings)
 
     # generate swaths
-    ordinal_swaths = generate_swath(ship, prim.edge_set_ordinal, 1, prim)
-    cardinal_swaths = generate_swath(ship, prim.edge_set_cardinal, 0, prim)
+    swath_dict = swath.generate_swath(ship, prim)
 
     # initialize a star object
     a_star = AStar(g_weight=0.5, h_weight=0.5, cmap=costmap_obj,
                    primitives=prim, ship=ship, first_initial_heading=initial_heading)
 
     worked, smoothed_edge_path, nodes_visited, x1, y1, x2, y2, orig_path = \
-        a_star.search(start_pos, goal_pos, cardinal_swaths, ordinal_swaths, smooth_path)
+        a_star.search(start_pos, goal_pos, swath_dict, smooth_path)
 
     smoothed_edge_path.reverse()
     print("Original path", smoothed_edge_path)
@@ -73,10 +74,10 @@ if __name__ == '__main__':
     ):
         print("\n################\nNEXT STEP\nStarting node", curr_pos)
         # compute the heading of current in the world frame
-        initial_heading = heading_to_world_frame(curr_pos[2], initial_heading)
+        initial_heading = heading_to_world_frame(curr_pos[2], initial_heading, num_headings)
         print("New initial_heading", initial_heading)
         # snap goal to lattice
-        snapped_goal = snap_to_lattice(curr_pos, goal_pos, initial_heading, turning_radius)
+        snapped_goal = snap_to_lattice(curr_pos, goal_pos, initial_heading, turning_radius, num_headings)
         new_start = (*curr_pos[:2], 0)  # straight ahead of boat is 0
 
         print("New start", new_start)
@@ -91,15 +92,14 @@ if __name__ == '__main__':
         prim.rotate(theta)
 
         # update swath keys
-        ordinal_swaths, cardinal_swaths = prim.update_swath(theta=theta,
-                                                            ord_swath=ordinal_swaths,
-                                                            card_swath=cardinal_swaths)
+        swath_dict = swath.update_swath(theta, swath_dict)
+
         # update ship initial heading
         ship.initial_heading = initial_heading
 
         # run search
         worked, new_path, nodes_visited, x1, y1, x2, y2, orig_path = \
-            a_star.search(new_start, snapped_goal, cardinal_swaths, ordinal_swaths, smooth_path)
+            a_star.search(new_start, snapped_goal, swath_dict, smooth_path)
 
         if new_path != "Fail":
             new_path.reverse()
@@ -110,7 +110,7 @@ if __name__ == '__main__':
             curr_pos = new_path[1]
 
             fig, ax = plt.subplots(1, figsize=(5, 10))
-            plot_path(ax, new_path, costmap_obj.cost_map, ship)
+            plot_path(ax, new_path, costmap_obj.cost_map, ship, num_headings)
             # plt.savefig(str(step) + ".png")
             # step += 1
             plt.show()

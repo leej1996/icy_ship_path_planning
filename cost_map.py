@@ -192,7 +192,7 @@ class CostMap:
 
         for (row, col) in zip(rr, cc):
             dist = np.sqrt((row - centre_y) ** 2 + (col - centre_x) ** 2)
-            new_cost = ((2 * radius - dist) ** exp_factor + 1) * self.obstacle_penalty
+            new_cost = max(0, ((2 * radius - dist) ** exp_factor + 1) * self.obstacle_penalty)  # TODO:
             old_cost = self.cost_map[row, col]
             self.cost_map[row, col] = max(new_cost, old_cost)
 
@@ -215,7 +215,7 @@ class CostMap:
                 "vertices": cont[:, 0]
             })
 
-    def compute_path_cost(self, path: List, ship: Ship, reverse_path=False, eps=1e-4) -> Tuple[int, int]:
+    def compute_path_cost(self, path: List, ship: Ship, num_headings: int, reverse_path=False, eps=1e-2) -> Tuple[int, int]:
         if reverse_path:
             path.reverse()
 
@@ -225,8 +225,8 @@ class CostMap:
         for i, vi in enumerate(path[:-1]):
             vj = path[i + 1]
             # determine cost between node vi and vj
-            theta_0 = heading_to_world_frame(vi[2], ship.initial_heading) % (2 * math.pi)
-            theta_1 = heading_to_world_frame(vj[2], ship.initial_heading) % (2 * math.pi)
+            theta_0 = heading_to_world_frame(vi[2], ship.initial_heading, num_headings)
+            theta_1 = heading_to_world_frame(vj[2], ship.initial_heading, num_headings)
             dubins_path = dubins.shortest_path((vi[0], vi[1], theta_0),
                                                (vj[0], vj[1], theta_1),
                                                ship.turning_radius - eps)
