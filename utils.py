@@ -4,12 +4,12 @@ import dubins
 import numpy as np
 
 
-def heading_to_world_frame(heading: int, theta_0: float):
+def heading_to_world_frame(heading: int, theta_0: float, num_headings: int):
     """
     :param heading: ordinal or cardinal heading from ships frame of reference
     :param theta_0: angle between ship and fixed coordinates
     """
-    return (heading * math.pi / 4 + theta_0) % (2 * math.pi)
+    return (heading * 2 * math.pi / num_headings + theta_0) % (2 * math.pi)
 
 
 def plot_path(ax, path, cost_map, ship):
