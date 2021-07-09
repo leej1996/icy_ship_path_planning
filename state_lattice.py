@@ -23,6 +23,8 @@ from ship import Ship
 from utils import heading_to_world_frame
 from pure_pursuit import TargetCourse, State
 
+at_goal = False
+
 class Path:
     def __init__(self, path: np.array):
         self.path = path
@@ -271,7 +273,7 @@ def main():
     start_pos = (20, 10, 0)  # (x, y, theta), possible values for theta 0 - 7 measured from ships positive x axis
     goal_pos = (20, 282, 0)
     print("GOAL", goal_pos)
-    smooth_path = True
+    smooth_path = False
     replan = True
     # plt.ion()
 
@@ -390,7 +392,7 @@ def main():
     fig2 = plt.figure()
     ax2 = plt.axes(xlim=(0, m), ylim=(0, n))
     ax2.set_aspect("equal")
-
+    line, = ax2.plot(path.path.T[0], path.path.T[1], 'r')
     # Gains for PID
     Kp = 3
     Ki = 0.08
@@ -399,8 +401,18 @@ def main():
     # pid.error_map = pi_clip
     # pid.output_limits = (-0.01309 * ang_vel_scale, 0.01309 * ang_vel_scale)  # set limits at (-45 deg/min, 45 deg/min) as max angular velocity
     pid.output_limits = (-1, 1)
+
+    def gen():
+        global at_goal
+        i = 0
+        while not at_goal:
+            i += 1
+            yield i
+
     def init():
         ax2.add_patch(ship_patch)
+        line.set_ydata(path.path.T[1])
+        line.set_xdata(path.path.T[0])
         for patch in patch_list:
             ax2.add_patch(patch)
         if not replan:
@@ -409,6 +421,7 @@ def main():
 
     def animate(dt, ship_patch, ship, polygons, patch_list, path,
                 fig1, ordinal_swaths, cardinal_swaths):
+        global at_goal
         # print(dt)
         # 20 ms step size
         for x in range(10):
@@ -423,6 +436,11 @@ def main():
         # As the angular velocity in pymunk uses the same convention as ship.body.angle, we must flip the sign
         # of the output as well
         output = -pid(-ship.body.angle)
+
+        if a_star.dist(ship_pos, goal_pos) < 5:
+            at_goal = True
+        else:
+            at_goal = False
 
         if (dt % 50  == 0 and dt != 0 and replan):
             print("\nNEXT STEP")
@@ -449,13 +467,15 @@ def main():
                 print("Replanned Path", smoothed_edge_path)
                 costmap_obj.update(polygons)
                 fig1, path_list = plot_path(fig1, costmap_obj, smoothed_edge_path, ship.initial_heading, turning_radius, smooth_path, prim, x1, x2, y1, y2, nodes_visited)
-                plt.show()
+                # plt.show()
                 path_list = path_list.T
                 path.path = path_list
+                line.set_xdata(path.path.T[0])
+                line.set_ydata(path.path.T[1])
                 ship.set_path_pos(0)
                 target_course.update(path.path.T[0], path.path.T[1])
                 state.update(ship.body.position.x, ship.body.position.y, ship.body.angle)
-                plt.show(block=False)
+                # plt.show(block=False)
                 # plt.pause(0.001)
 
         # determine which part of the path ship is on and get translational/angular velocity for ship
@@ -506,11 +526,11 @@ def main():
         return patch_list
 
     print("START ANIMATION")
-    frames = np.shape(path.path)[0]
+    #frames = np.shape(path.path)[0]
     anim = animation.FuncAnimation(fig2,
                                    animate,
                                    init_func=init,
-                                   frames=frames,
+                                   frames=gen,
                                    fargs=(ship_patch, ship, polygons, patch_list, path,
                                           fig1, ordinal_swaths, cardinal_swaths, ),
                                    interval=20,
@@ -518,6 +538,7 @@ def main():
                                    repeat=False)
 
     plt.show()
+    anim.save("movie.gif", writer=animation.PillowWriter(fps=30))
 
     # get response from user for saving costmap
     costmap_obj.save_to_disk()
