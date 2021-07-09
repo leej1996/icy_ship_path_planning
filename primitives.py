@@ -31,7 +31,7 @@ class Primitives:
         self.max_prim = self.get_max_prim()
         self.orig_edge_set = self.edge_set_dict.copy()
 
-    def view(self, theta: float = 0, save_fig_prefix="primitives_", turning_radius: float = None, eps=1e-5):
+    def view(self, theta: float = 0, save_fig_prefix="primitives_", turning_radius: float = None, eps=1e-10):
         """ plots all the primitives in the edge set dict """
         if turning_radius is None:
             turning_radius = self.scale
@@ -72,7 +72,7 @@ class Primitives:
         R = self.rotation_matrix(theta)
 
         edge_set = self.orig_edge_set if orig else self.edge_set_dict
-        self.edge_set_dict = {k: np.round(v @ R.T, 5) for k, v in edge_set.items()}
+        self.edge_set_dict = {k: v @ R.T for k, v in edge_set.items()}
 
     def get_max_prim(self):
         prims = np.concatenate(list(self.edge_set_dict.values()))
@@ -266,5 +266,5 @@ class Primitives:
 if __name__ == '__main__':
     # for testing purposes
     theta = 0  # np.pi / 4
-    p = Primitives(initial_heading=theta, num_headings=16)
+    p = Primitives(scale=8, initial_heading=theta, num_headings=16)
     p.view(theta=theta)

@@ -192,7 +192,7 @@ class CostMap:
 
         for (row, col) in zip(rr, cc):
             dist = np.sqrt((row - centre_y) ** 2 + (col - centre_x) ** 2)
-            new_cost = max(0, ((2 * radius - dist) ** exp_factor + 1) * self.obstacle_penalty)  # TODO:
+            new_cost = max(0, ((2 * radius - dist) ** exp_factor + 1) * self.obstacle_penalty)
             old_cost = self.cost_map[row, col]
             self.cost_map[row, col] = max(new_cost, old_cost)
 
@@ -215,16 +215,15 @@ class CostMap:
                 "vertices": cont[:, 0]
             })
 
-    def compute_path_cost(self, path: List, ship: Ship, num_headings: int, reverse_path=False, eps=1e-2) -> Tuple[int, int]:
+    def compute_path_cost(self, path: List, ship: Ship, num_headings: int, reverse_path=False, eps=1e0) -> Tuple[int, int]:
         if reverse_path:
             path.reverse()
 
-        total_path_cost = 0
         total_path_length = 0
-        total_swath = np.zeros_like(self.cost_map)
+        total_swath = np.zeros_like(self.cost_map, dtype=bool)
         for i, vi in enumerate(path[:-1]):
             vj = path[i + 1]
-            # determine cost between node vi and vj
+            # determine cost between node vi and vj  # FIXME
             theta_0 = heading_to_world_frame(vi[2], ship.initial_heading, num_headings)
             theta_1 = heading_to_world_frame(vj[2], ship.initial_heading, num_headings)
             dubins_path = dubins.shortest_path((vi[0], vi[1], theta_0),
@@ -232,7 +231,6 @@ class CostMap:
                                                ship.turning_radius - eps)
 
             configurations, _ = dubins_path.sample_many(1.2)
-            swath = np.zeros_like(self.cost_map, dtype=bool)
 
             # for each point sampled on dubins path, get x, y, theta
             for config in configurations:
@@ -250,13 +248,12 @@ class CostMap:
 
                 # draw rotated ship polygon and put occupied cells into a mask
                 rr, cc = draw.polygon(rot_vi[1, :], rot_vi[0, :], shape=self.cost_map.shape)
-                swath[rr, cc] = True
-                total_swath[rr, cc] = 1
+                total_swath[rr, cc] = True
 
-            # update cost and total swath
-            total_path_cost += float(np.sum(self.cost_map[swath]) + dubins_path.path_length())
+            # update path length
             total_path_length += dubins_path.path_length()
 
+        total_path_cost = self.cost_map[total_swath].sum() + total_path_length
         return total_path_cost, total_path_length
 
     def update(self, obstacles: List[Poly]) -> None:

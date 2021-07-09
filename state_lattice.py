@@ -108,7 +108,7 @@ def create_polygon(space, staticBody, vertices, x, y, density):
 
 # FIXME: improve
 def plot_path(fig1, costmap_obj, smoothed_edge_path, initial_heading, turning_radius, smooth_path, prim, x1, x2, y1, y2,
-              nodes_visited, eps=1e-2):
+              nodes_visited, eps=1e0):
     plt.close(fig1)
     fig1, ax1 = plt.subplots(1, 2, figsize=(5, 10))
     ax1[0].imshow(costmap_obj.cost_map, origin='lower')
@@ -131,7 +131,7 @@ def plot_path(fig1, costmap_obj, smoothed_edge_path, initial_heading, turning_ra
         for config in configurations:
             x.append(config[0])
             y.append(config[1])
-            theta.append(config[2] - math.pi / 2)  # FIXME
+            theta.append(config[2] - initial_heading)
 
         if not smooth_path and False:  # only want to show primitives on un smoothed path
             if (P1[2] * 45) % 90 == 0:
@@ -180,28 +180,49 @@ def create_node_plot(n, m, nodes_visited):
     return node_plot
 
 
-# TODO: move all param config to a separate method
 def main():
+    # PARAM SETUP
+    # --- costmap --- #
+    n = 300  # channel height
+    m = 40  # channel width
     load_costmap_file = ""  # "sample_costmaps/random_obstacles_1.pk"
-    # Resolution is 10 m
-    n = 300
-    m = 40
+
+    # --- ship --- #
+    start_pos = (20, 10, 0)  # (x, y, theta)
+    goal_pos = (20, 282, 0)
     initial_heading = math.pi / 2
-    turning_radius = 8  # 300 m turn radius
+    turning_radius = 8
+    vel_scale = 10
+    ang_vel_scale = 40  # do we need this??
+    padding = 3  # padding around ship vertices to increase footprint when computing path costs
     ship_vertices = np.array([[1, 4],
                               [-1, 4],
                               [-1, -4],
                               [1, -4]])
+
+    # --- primitives --- #
+    num_headings = 8
+
+    # --- ice --- #
+    num_obs = 130  # number of random ice obstacles
+    min_r = 1  # min ice radius
+    max_r = 8
+    upper_offset = 20  # offset from top of costmap where ice stops
+    lower_offset = 20
+    allow_overlap = False  # if True allow overlap in ice obstacles
     obstacle_density = 6
     obstacle_penalty = 3
-    vel_scale = 10
-    ang_vel_scale = 40
-    start_pos = (20, 10, 0)  # (x, y, theta), possible values for theta 0 - 7 measured from ships positive x axis
-    goal_pos = (20, 282, 0)
-    print("GOAL", goal_pos)
-    smooth_path = True
-    replan = True
-    # plt.ion()
+
+    # --- A* --- #
+    g_weight = 0.5  # cost = g_weight * g_score + h_weight * h_score
+    h_weight = 0.5
+    smooth_path = True  # if True run smoothing algorithm
+    replan = True  # if True rerun A* search at each time step
+
+    # --- pid --- #
+    Kp = 3
+    Ki = 0.08
+    Kd = 0.5
 
     # load costmap object from file if specified
     if load_costmap_file:
@@ -212,20 +233,20 @@ def main():
         costmap_obj = CostMap(n, m, obstacle_penalty)
 
         # generate random obstacles
-        costmap_obj.generate_obstacles(start_pos, goal_pos, num_obs=130, min_r=1, max_r=8,
-                                       upper_offset=20, lower_offset=20, allow_overlap=False)
+        costmap_obj.generate_obstacles(start_pos, goal_pos, num_obs, min_r, max_r,
+                                       upper_offset, lower_offset, allow_overlap)
 
     # initialize ship object
-    ship = Ship(ship_vertices, start_pos, initial_heading, turning_radius)
+    ship = Ship(ship_vertices, start_pos, initial_heading, turning_radius, padding)
     print("TURN RADIUS", ship.calc_turn_radius(45, 2))
     # get the primitives
-    prim = Primitives(scale=turning_radius, initial_heading=initial_heading, num_headings=16)
+    prim = Primitives(turning_radius, initial_heading, num_headings)
 
     # generate swath dict
     swath_dict = swath.generate_swath(ship, prim)
 
     # initialize a star object
-    a_star = AStar(g_weight=0.5, h_weight=0.5, cmap=costmap_obj,
+    a_star = AStar(g_weight, h_weight, cmap=costmap_obj,
                    primitives=prim, ship=ship, first_initial_heading=initial_heading)
 
     t0 = time.clock()
@@ -268,14 +289,6 @@ def main():
                                     smooth_path, prim, x1, x2, y1, y2, nodes_visited)
     else:
         path = 0
-    '''
-    node_plot = np.zeros((n, m))
-    for node in nodes_visited:
-        r, c = int(round(node[1])), int(round(node[0]))
-        node_plot[r, c] = node_plot[r, c] + 1
-            ax1[1].imshow(node_plot, origin='lower')
-    print("Num of nodes expanded", np.sum(node_plot))
-    '''
 
     space = pymunk.Space()
     space.add(ship.body, ship.shape)
@@ -320,10 +333,7 @@ def main():
     ax2 = plt.axes(xlim=(0, m), ylim=(0, n))
     ax2.set_aspect("equal")
 
-    # Gains for PID
-    Kp = 3
-    Ki = 0.08
-    Kd = 0.5
+    # init PID controller
     pid = PID(Kp, Ki, Kd, 0)
     # pid.error_map = pi_clip
     # pid.output_limits = (-0.01309 * ang_vel_scale, 0.01309 * ang_vel_scale)  # set limits at (-45 deg/min, 45 deg/min) as max angular velocity
@@ -354,7 +364,7 @@ def main():
         # of the output as well
         output = -pid(-ship.body.angle)
 
-        if (dt % 50 == 0 and dt != 0 and replan):
+        if dt % 50 == 0 and dt != 0 and replan:
             print("\nNEXT STEP")
             ship.initial_heading = -ship.body.angle + a_star.first_initial_heading
             curr_pos = (ship_pos[0], ship_pos[1], 0)  # straight ahead of boat is 0
@@ -385,7 +395,6 @@ def main():
                 target_course.update(path.path.T[0], path.path.T[1])
                 state.update(ship.body.position.x, ship.body.position.y, ship.body.angle)
                 plt.show(block=False)
-                # plt.pause(0.001)
 
         # determine which part of the path ship is on and get translational/angular velocity for ship
         if ship.path_pos < np.shape(path.path)[0] - 1:

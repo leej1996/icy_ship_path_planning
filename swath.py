@@ -12,7 +12,7 @@ from utils import heading_to_world_frame
 Swath = Dict[Tuple, np.ndarray]
 
 
-def generate_swath(ship: Ship, prim: Primitives, eps=1e-5) -> Swath:
+def generate_swath(ship: Ship, prim: Primitives, eps=1e-10) -> Swath:
     """
     Will have key of (edge, start heading)
     """
@@ -25,7 +25,7 @@ def generate_swath(ship: Ship, prim: Primitives, eps=1e-5) -> Swath:
             array = np.zeros([(prim.max_prim + ship.max_ship_length // 2) * 2 + 1] * 2, dtype=bool)
             translated_e = np.asarray(e) + np.array([start_pos[0], start_pos[1], 0])
 
-            theta_0 = heading_to_world_frame(start_pos[2], ship.initial_heading, prim.num_headings)
+            theta_0 = heading_to_world_frame(start_pos[2], ship.initial_heading, prim.num_headings)  # FIXME
             theta_1 = heading_to_world_frame(translated_e[2], ship.initial_heading, prim.num_headings)
             dubins_path = dubins.shortest_path((start_pos[0], start_pos[1], theta_0),
                                                (translated_e[0], translated_e[1], theta_1),
@@ -48,7 +48,7 @@ def generate_swath(ship: Ship, prim: Primitives, eps=1e-5) -> Swath:
 
             # for each starting heading rotate the swath 4 times
             for i, h in enumerate(range(0, prim.num_headings, prim.num_headings // 4)):
-                swath_dict[e, h + origin[2]] = np.rot90(array, k=i, axes=(0, 1))
+                swath_dict[e, h + origin[2]] = np.rot90(array, k=i, axes=(1, 0))
 
     return swath_dict
 
@@ -62,7 +62,7 @@ def update_swath(theta: float, swath_dict: Swath) -> Swath:
 
     # generate new keys for swath
     return {
-        (tuple(np.round(k[0] @ R.T, 5)), k[1]): v for k, v in swath_dict.items()
+        (tuple(k[0] @ R.T), k[1]): v for k, v in swath_dict.items()
     }
 
 
