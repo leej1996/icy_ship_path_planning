@@ -223,7 +223,7 @@ class CostMap:
         total_swath = np.zeros_like(self.cost_map, dtype=bool)
         for i, vi in enumerate(path[:-1]):
             vj = path[i + 1]
-            # determine cost between node vi and vj  # FIXME
+            # determine cost between node vi and vj  # FIXME: code duplication with generate_swath and path smoothing
             theta_0 = heading_to_world_frame(vi[2], ship.initial_heading, num_headings)
             theta_1 = heading_to_world_frame(vj[2], ship.initial_heading, num_headings)
             dubins_path = dubins.shortest_path((vi[0], vi[1], theta_0),

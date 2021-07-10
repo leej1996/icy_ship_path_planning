@@ -25,7 +25,7 @@ def generate_swath(ship: Ship, prim: Primitives, eps=1e-10) -> Swath:
             array = np.zeros([(prim.max_prim + ship.max_ship_length // 2) * 2 + 1] * 2, dtype=bool)
             translated_e = np.asarray(e) + np.array([start_pos[0], start_pos[1], 0])
 
-            theta_0 = heading_to_world_frame(start_pos[2], ship.initial_heading, prim.num_headings)  # FIXME
+            theta_0 = heading_to_world_frame(start_pos[2], ship.initial_heading, prim.num_headings)
             theta_1 = heading_to_world_frame(translated_e[2], ship.initial_heading, prim.num_headings)
             dubins_path = dubins.shortest_path((start_pos[0], start_pos[1], theta_0),
                                                (translated_e[0], translated_e[1], theta_1),

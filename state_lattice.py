@@ -2,7 +2,6 @@ import math
 import pickle
 import time
 
-import dubins
 import numpy as np
 import pymunk
 import pymunk.constraints
@@ -11,15 +10,14 @@ from matplotlib import patches
 from matplotlib import pyplot as plt
 from pymunk.vec2d import Vec2d
 from simple_pid import PID
-from skimage import transform
 
+import swath
 from a_star_search import AStar
 from cost_map import CostMap
 from primitives import Primitives
 from pure_pursuit import TargetCourse, State
 from ship import Ship
-import swath
-from utils import heading_to_world_frame
+from utils import heading_to_world_frame, get_points_on_dubins_path
 
 
 class Path:
@@ -106,7 +104,6 @@ def create_polygon(space, staticBody, vertices, x, y, density):
     return shape
 
 
-# FIXME: improve
 def plot_path(fig1, costmap_obj, smoothed_edge_path, initial_heading, turning_radius, smooth_path, prim, x1, x2, y1, y2,
               nodes_visited, eps=1e0):
     plt.close(fig1)
@@ -118,43 +115,20 @@ def plot_path(fig1, costmap_obj, smoothed_edge_path, initial_heading, turning_ra
     for i in range(np.shape(PATH)[0] - 1):
         P1 = PATH[i]
         P2 = PATH[i + 1]
-        theta_0 = heading_to_world_frame(P1[2], initial_heading, prim.num_headings)
-        theta_1 = heading_to_world_frame(P2[2], initial_heading, prim.num_headings)
-        dubins_path = dubins.shortest_path((P1[0], P1[1], theta_0),
-                                           (P2[0], P2[1], theta_1),
-                                           turning_radius - eps)
-        configurations, _ = dubins_path.sample_many(0.2)
-        # 0.01
-        x = []
-        y = []
-        theta = []
-        for config in configurations:
-            x.append(config[0])
-            y.append(config[1])
-            theta.append(config[2] - initial_heading)
+        x, y, theta = get_points_on_dubins_path(P1, P2, prim.num_headings, initial_heading, turning_radius, eps)
 
         if not smooth_path and False:  # only want to show primitives on un smoothed path
-            if (P1[2] * 45) % 90 == 0:
-                edge_set = prim.edge_set_cardinal
-            else:
-                edge_set = prim.edge_set_ordinal
+            # find the base heading (e.g. cardinal or ordinal)
+            num_base_h = prim.num_headings // 4
+            arr = np.asarray([(P1[2] + num_base_h - h[2]) % num_base_h for h in prim.edge_set_dict.keys()])
+            base_heading = np.argwhere(arr == 0)[0, 0]
+
+            # get the edge set based on the current node heading
+            edge_set = prim.edge_set_dict[(0, 0, base_heading)]
+
             for e in edge_set:
-                # find the base heading (e.g. cardinal or ordinal)
-                num_base_h = prim.num_headings // 4
-                arr = np.asarray([
-                    (P1[2] + num_base_h - h[2]) % num_base_h for h in prim.edge_set_dict.keys()
-                ])
-                base_heading = np.argwhere(arr == 0)[0, 0]
                 p2 = AStar.concat(P1, e, base_heading, prim.num_headings)
-                theta_1 = heading_to_world_frame(p2[2], initial_heading, prim.num_headings)
-                dubins_path = dubins.shortest_path((P1[0], P1[1], theta_0), (p2[0], p2[1], theta_1),
-                                                   turning_radius - eps)
-                configurations, _ = dubins_path.sample_many(0.2)
-                x3 = []
-                y3 = []
-                for config in configurations:
-                    x3.append(config[0])
-                    y3.append(config[1])
+                x3, y3, _ = get_points_on_dubins_path(P1, p2, prim.num_headings, initial_heading, turning_radius, eps)
                 ax1[0].plot(x3, y3, 'r')
 
         ax1[0].plot(x, y, 'g')
@@ -223,6 +197,8 @@ def main():
     Kp = 3
     Ki = 0.08
     Kd = 0.5
+
+    # plt.ion()
 
     # load costmap object from file if specified
     if load_costmap_file:
@@ -395,6 +371,7 @@ def main():
                 target_course.update(path.path.T[0], path.path.T[1])
                 state.update(ship.body.position.x, ship.body.position.y, ship.body.angle)
                 plt.show(block=False)
+                # plt.pause(0.0001)
 
         # determine which part of the path ship is on and get translational/angular velocity for ship
         if ship.path_pos < np.shape(path.path)[0] - 1:

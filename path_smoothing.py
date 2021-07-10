@@ -2,18 +2,17 @@ import math
 from typing import Tuple, List
 
 import dubins
-import os
-import pickle
 import numpy as np
-from cost_map import CostMap
 from skimage import draw
 
+from cost_map import CostMap
 from ship import Ship
 from utils import heading_to_world_frame
 
 
 def path_smoothing(path: List, path_length: List, cost_map: CostMap, start: Tuple, goal: Tuple,
-                   ship: Ship, num_nodes: int, num_headings: int, dist_cuttoff: int = 100, eps: float = 1e-5):  # epsilon handles small error from dubins package
+                   ship: Ship, num_nodes: int, num_headings: int, dist_cuttoff: int = 100,
+                   eps: float = 1e-5):  # epsilon handles small error from dubins package
     print("Attempt Smoothing")
     chan_h, chan_w = np.shape(cost_map.cost_map)
     total_length = np.sum(path_length)
@@ -47,7 +46,7 @@ def path_smoothing(path: List, path_length: List, cost_map: CostMap, start: Tupl
         theta_0 = heading_to_world_frame(prev_node[2], ship.initial_heading, num_headings)
         theta_1 = heading_to_world_frame(node[2], ship.initial_heading, num_headings)
         dubins_path = dubins.shortest_path((prev_node[0], prev_node[1], theta_0),
-                                    (node[0], node[1], theta_1), ship.turning_radius - eps)
+                                           (node[0], node[1], theta_1), ship.turning_radius - eps)
         configurations, _ = dubins_path.sample_many(0.1)
 
         # if there are multiple nodes to be added between two nodes, try to space them out equally

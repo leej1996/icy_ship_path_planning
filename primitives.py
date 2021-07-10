@@ -1,11 +1,10 @@
 from functools import partial
 from typing import Tuple, List, Dict
 
-import dubins
 import matplotlib.pyplot as plt
 import numpy as np
 
-from utils import heading_to_world_frame
+from utils import get_points_on_dubins_path
 
 
 class Primitives:
@@ -53,16 +52,7 @@ class Primitives:
                 dxdy = (R @ np.asarray([np.cos(heading), np.sin(heading)])) * arrow_length
                 arrow(x=xy[0], y=xy[1], dx=dxdy[0], dy=dxdy[1])
 
-                theta_0 = heading_to_world_frame(origin[2], theta, self.num_headings)
-                theta_1 = heading_to_world_frame(edge[2], theta, self.num_headings)
-                # generate dubins path from origin to final x, y, heading
-                dubins_path = dubins.shortest_path((origin[0], origin[1], theta_0),
-                                                   (edge[0], edge[1], theta_1),
-                                                   turning_radius - eps)
-                configurations, _ = dubins_path.sample_many(0.2)
-                x = np.asarray(configurations)[:, 0]
-                y = np.asarray(configurations)[:, 1]
-
+                x, y, _ = get_points_on_dubins_path(origin, edge, self.num_headings, theta, turning_radius, eps)
                 plt.plot(x, y, 'b')
 
             # plt.savefig(save_fig_prefix + str(origin[2]) + ".png")
