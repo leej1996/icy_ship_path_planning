@@ -275,6 +275,7 @@ def main():
     print("GOAL", goal_pos)
     smooth_path = False
     replan = True
+    save_animation = False
     # plt.ion()
 
     # load costmap object from file if specified
@@ -327,12 +328,12 @@ def main():
           "\n\toriginal path:  {:.4f}"
           "\n\twith smoothing: {:.4f}"
           "\n\tstraight path:  {:.4f}\n".format(og_length, smooth_length, straight_length))
-    try:
-        assert smoothed_cost <= recomputed_original_cost <= straight_path_cost, \
-            "smoothed cost should be less than original cost and original cost should be less than straight cost"
-    except AssertionError as error:
-        print(error)
-        costmap_obj.save_to_disk()
+    #try:
+        #assert smoothed_cost <= recomputed_original_cost <= straight_path_cost, \
+            #"smoothed cost should be less than original cost and original cost should be less than straight cost"
+    #except AssertionError as error:
+    #    print(error)
+    #    costmap_obj.save_to_disk()
 
     fig1, ax1 = plt.subplots(1, 2, figsize=(5, 10))
 
@@ -439,8 +440,9 @@ def main():
 
         if a_star.dist(ship_pos, goal_pos) < 5:
             at_goal = True
+            print("At goal")
         else:
-            at_goal = False
+            at_goal = False  # might not be needed
 
         if (dt % 50  == 0 and dt != 0 and replan):
             print("\nNEXT STEP")
@@ -535,10 +537,13 @@ def main():
                                           fig1, ordinal_swaths, cardinal_swaths, ),
                                    interval=20,
                                    blit=True,
-                                   repeat=False)
+                                   repeat=False,
+                                   save_count=1500
+                                   )
 
+    if save_animation:
+        anim.save("gifs/movie.gif", writer=animation.PillowWriter(fps=30))
     plt.show()
-    anim.save("movie.gif", writer=animation.PillowWriter(fps=30))
 
     # get response from user for saving costmap
     costmap_obj.save_to_disk()
