@@ -65,7 +65,7 @@ def path_smoothing(path: List, path_length: List, cost_map: CostMap, start: Tupl
                 if heading < 0:
                     heading = heading + 2 * math.pi
 
-                path.insert(node_id - 1 + inc + counter, (v[0], v[1], heading / (math.pi / 4)))
+                path.insert(node_id - 1 + inc + counter, (v[0], v[1], heading / (2 * math.pi / num_headings)))
                 inc += 1
         counter += num_values
         offset = offset + inc - 1

@@ -30,7 +30,7 @@ class CostMap:
 
     def boundary_cost(self, exp_factor=2.0, cutoff_factor=0.25) -> None:
         for col in range(self.m):
-            self.cost_map[:, col] = max(0, (np.abs(col - self.m // 2) - cutoff_factor * self.m)) ** exp_factor
+            self.cost_map[:, col] = max(0, (np.abs(col - self.m / 2) - cutoff_factor * self.m)) ** exp_factor
 
     def generate_obstacles(self, start_pos, goal_pos, num_obs, min_r, max_r,
                            upper_offset, lower_offset, allow_overlap=True, debug=False) -> List[dict]:
