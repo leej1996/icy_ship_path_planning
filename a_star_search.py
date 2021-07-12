@@ -168,7 +168,7 @@ class AStar:
         return False, 'Fail', 'Fail', 'Fail', 'Fail', 'Fail', 'Fail', 'Fail'
 
     # helper methods
-    def get_swath(self, e, start_pos, swath_dict: Swath):  # FIXME
+    def get_swath(self, e, start_pos, swath_dict: Swath):
         swath = np.zeros_like(self.cmap.cost_map, dtype=bool)
         heading = int(start_pos[2])
         # raw_swath = swath_set[tuple(e), heading]

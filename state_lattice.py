@@ -192,14 +192,14 @@ def main():
     # --- A* --- #
     g_weight = 0.5  # cost = g_weight * g_score + h_weight * h_score
     h_weight = 0.5
-    smooth_path = True  # if True run smoothing algorithm
 
     # --- pid --- #
     Kp = 3
     Ki = 0.08
     Kd = 0.5
-    
+
     # -- misc --- #
+    smooth_path = False  # if True run smoothing algorithm
     replan = True  # if True rerun A* search at each time step
     save_animation = False
     # plt.ion()
@@ -253,10 +253,10 @@ def main():
           "\n\toriginal path:  {:.4f}"
           "\n\twith smoothing: {:.4f}"
           "\n\tstraight path:  {:.4f}\n".format(og_length, smooth_length, straight_length))
-    #try:
-        #assert smoothed_cost <= recomputed_original_cost <= straight_path_cost, \
-            #"smoothed cost should be less than original cost and original cost should be less than straight cost"
-    #except AssertionError as error:
+    # try:
+    #     assert smoothed_cost <= recomputed_original_cost <= straight_path_cost, \
+    #         "smoothed cost should be less than original cost and original cost should be less than straight cost"
+    # except AssertionError as error:
     #    print(error)
     #    costmap_obj.save_to_disk()
 
@@ -289,7 +289,6 @@ def main():
 
     ship_patch = patches.Polygon(vs, True, color='green')
 
-    # TODO: update pymunk stuff
     print("GENERATE OBSTACLES")
     for obs in costmap_obj.obstacles:
         polygons.append(
