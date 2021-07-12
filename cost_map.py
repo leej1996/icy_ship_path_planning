@@ -1,13 +1,19 @@
 import math
+import os
+import pickle
 import random
-from typing import List
+from typing import List, Tuple
 
 import cv2
 import dubins
 import numpy as np
+from pymunk import Poly
 from skimage import draw
 from matplotlib import patches
 import matplotlib.pyplot as plt
+
+from ship import Ship
+from utils import heading_to_world_frame
 
 
 class CostMap:
@@ -24,7 +30,7 @@ class CostMap:
 
     def boundary_cost(self, exp_factor=2.0, cutoff_factor=0.25) -> None:
         for col in range(self.m):
-            self.cost_map[:, col] = max(0, (np.abs(col - self.m // 2) - cutoff_factor * self.m)) ** exp_factor
+            self.cost_map[:, col] = max(0, (np.abs(col - self.m / 2) - cutoff_factor * self.m)) ** exp_factor
 
     def generate_obstacles(self, start_pos, goal_pos, num_obs, min_r, max_r,
                            upper_offset, lower_offset, allow_overlap=True, debug=False) -> List[dict]:
@@ -33,7 +39,7 @@ class CostMap:
         while len(self.obstacles) < num_obs:
             near_obs = False
             x = random.randint(max_r, channel_width - max_r - 1)
-            y = random.randint(start_pos[1] + lower_offset + max_r, goal_pos[1] - upper_offset - max_r)
+            y = random.randint(start_pos[1] + lower_offset + max_r, int(goal_pos[1] - upper_offset - max_r))
             r = random.randint(min_r, max_r)
 
             if not allow_overlap:
@@ -47,6 +53,9 @@ class CostMap:
             if not near_obs:
                 # generate polygon
                 polygon = self.generate_polygon(diameter=r * 2, origin=(x, y))
+
+                # compute radius from polygon (note this might be slightly different than the original sampled r)
+                r = self.compute_polygon_diameter(polygon) / 2
 
                 # compute the cost and update the costmap
                 if self.populate_costmap(centre_coords=(x, y), radius=r, polygon=polygon):
@@ -183,7 +192,7 @@ class CostMap:
 
         for (row, col) in zip(rr, cc):
             dist = np.sqrt((row - centre_y) ** 2 + (col - centre_x) ** 2)
-            new_cost = ((2 * radius - dist) ** exp_factor + 1) * self.obstacle_penalty
+            new_cost = max(0, ((2 * radius - dist) ** exp_factor + 1) * self.obstacle_penalty)
             old_cost = self.cost_map[row, col]
             self.cost_map[row, col] = max(new_cost, old_cost)
 
@@ -206,45 +215,85 @@ class CostMap:
                 "vertices": cont[:, 0]
             })
 
-    def compute_path_cost(self, path, turning_radius, ship_vertices, reverse_path=False, eps=1-4) -> float:
+    def compute_path_cost(self, path: List, ship: Ship, num_headings: int, reverse_path=False, eps=1e0) -> Tuple[int, int]:
         if reverse_path:
             path.reverse()
 
-        total_path_cost = 0
-        total_swath = np.zeros_like(self.cost_map)
+        total_path_length = 0
+        total_swath = np.zeros_like(self.cost_map, dtype=bool)
         for i, vi in enumerate(path[:-1]):
             vj = path[i + 1]
-            # determine cost between node vi and vj
-            dubins_path = dubins.shortest_path((vi[0], vi[1], math.radians((vi[2] + 2) * 45) % (2 * math.pi)),
-                                               (vj[0], vj[1], math.radians((vj[2] + 2) * 45) % (2 * math.pi)),
-                                               turning_radius - eps)
+            # determine cost between node vi and vj  # FIXME: code duplication with generate_swath and path smoothing
+            theta_0 = heading_to_world_frame(vi[2], ship.initial_heading, num_headings)
+            theta_1 = heading_to_world_frame(vj[2], ship.initial_heading, num_headings)
+            dubins_path = dubins.shortest_path((vi[0], vi[1], theta_0),
+                                               (vj[0], vj[1], theta_1),
+                                               ship.turning_radius - eps)
 
             configurations, _ = dubins_path.sample_many(1.2)
-            swath = np.zeros_like(self.cost_map, dtype=bool)
 
             # for each point sampled on dubins path, get x, y, theta
             for config in configurations:
                 x_cell = int(round(config[0]))
                 y_cell = int(round(config[1]))
 
-                theta = config[2] - math.pi / 2
+                theta = config[2] - ship.initial_heading
                 R = np.asarray([
                     [np.cos(theta), -np.sin(theta)],
                     [np.sin(theta), np.cos(theta)]
                 ])
 
                 # rotate/translate vertices of ship from origin to sampled point with heading = theta
-                rot_vi = np.round(np.array([[x_cell], [y_cell]]) + R @ ship_vertices.T).astype(int)
+                rot_vi = np.round(np.array([[x_cell], [y_cell]]) + R @ ship.vertices.T).astype(int)
 
                 # draw rotated ship polygon and put occupied cells into a mask
                 rr, cc = draw.polygon(rot_vi[1, :], rot_vi[0, :], shape=self.cost_map.shape)
-                swath[rr, cc] = True
-                total_swath[rr, cc] = 1
+                total_swath[rr, cc] = True
 
-            # update cost and total swath
-            total_path_cost += float(np.sum(self.cost_map[swath]) + dubins_path.path_length())
+            # update path length
+            total_path_length += dubins_path.path_length()
 
-        return total_path_cost
+        total_path_cost = self.cost_map[total_swath].sum() + total_path_length
+        return total_path_cost, total_path_length
+
+    def update(self, obstacles: List[Poly]) -> None:
+        # clear costmap and obstacles
+        self.cost_map[:] = 0
+        self.obstacles = []
+        # apply a cost to the boundaries of the channel
+        self.boundary_cost()
+
+        # update obstacles based on new positions
+        for obs in obstacles:
+            poly_vertices = np.asarray(
+                [v.rotated(-obs.body.angle) + obs.body.position for v in obs.get_vertices()]
+            ).astype(int)
+
+            # recompute the obstacle radius
+            r = self.compute_polygon_diameter(poly_vertices) / 2
+
+            # compute the cost and update the costmap
+            if self.populate_costmap(centre_coords=list(obs.body.position), radius=r, polygon=poly_vertices):
+                # add the polygon to obstacles list if it is feasible
+                self.obstacles.append({
+                    'vertices': poly_vertices,
+                    'centre': list(obs.body.position),
+                    'radius': r
+                })
+
+    def save_to_disk(self) -> None:
+        save_costmap_file = input("\n\nFile name to save out costmap (press enter to ignore)\n").lower()
+        if save_costmap_file:
+            fp = os.path.join("sample_costmaps", save_costmap_file + ".pk")
+            with open(fp, "wb") as fd:
+                pickle.dump(self, fd)
+                print("Successfully saved costmap object to file path '{}'".format(fp))
+
+    @staticmethod
+    def compute_polygon_diameter(vertices) -> float:
+        dist = lambda a, b: np.sqrt((a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2)
+        return max(dist(a, b) for a in vertices for b in vertices)
+
 
 def main():
     # initialize costmap
