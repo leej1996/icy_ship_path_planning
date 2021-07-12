@@ -168,8 +168,7 @@ def main():
     goal_pos = (20, 282, 0)
     initial_heading = math.pi / 2
     turning_radius = 8
-    vel_scale = 10
-    ang_vel_scale = 40  # do we need this??
+    vel = 10  # constant linear velocity of ship
     padding = 3  # padding around ship vertices to increase footprint when computing path costs
     ship_vertices = np.array([[1, 4],
                               [-1, 4],
@@ -184,7 +183,7 @@ def main():
     min_r = 1  # min ice radius
     max_r = 8
     upper_offset = 20  # offset from top of costmap where ice stops
-    lower_offset = 20
+    lower_offset = 20  # offset from bottom of costmap where ice stops
     allow_overlap = False  # if True allow overlap in ice obstacles
     obstacle_density = 6
     obstacle_penalty = 3
@@ -201,8 +200,8 @@ def main():
     # -- misc --- #
     smooth_path = False  # if True run smoothing algorithm
     replan = True  # if True rerun A* search at each time step
-    save_animation = False
-    # plt.ion()
+    save_animation = False  # if True save animation and don't show it
+
 
     # load costmap object from file if specified
     if load_costmap_file:
@@ -218,7 +217,7 @@ def main():
 
     # initialize ship object
     ship = Ship(ship_vertices, start_pos, initial_heading, turning_radius, padding)
-    print("TURN RADIUS", ship.calc_turn_radius(45, 2))
+
     # get the primitives
     prim = Primitives(turning_radius, initial_heading, num_headings)
 
@@ -315,10 +314,9 @@ def main():
 
     # init PID controller
     pid = PID(Kp, Ki, Kd, 0)
-    # pid.error_map = pi_clip
-    # pid.output_limits = (-0.01309 * ang_vel_scale, 0.01309 * ang_vel_scale)  # set limits at (-45 deg/min, 45 deg/min) as max angular velocity
-    pid.output_limits = (-1, 1)
+    pid.output_limits = (-1, 1)  # limit on PID output
 
+    # generator to end matplotlib animation when it reaches the goal
     def gen():
         global at_goal
         i = 0
@@ -327,6 +325,7 @@ def main():
             yield i
 
     def init():
+        # Initialize the matplotlib animation
         ax2.add_patch(ship_patch)
         line.set_ydata(path.path.T[1])
         line.set_xdata(path.path.T[0])
@@ -343,7 +342,7 @@ def main():
         for x in range(10):
             space.step(2 / 100 / 10)
 
-        ship_pos = (ship.body.position.x, ship.body.position.y)
+        ship_pos = (ship.body.position.x, ship.body.position.y, 0) # straight ahead of boat is 0
 
         # Pymunk takes left turn as negative and right turn as positive in ship.body.angle
         # To get proper error, we must flip the sign on the angle, as to calculate the setpoint,
@@ -353,17 +352,17 @@ def main():
         # of the output as well
         output = -pid(-ship.body.angle)
 
+        # check if ship is at goal
         if a_star.dist(ship_pos, goal_pos) < 5:
             at_goal = True
-            print("At goal")
         else:
             at_goal = False  # might not be needed
 
         if dt % 50 == 0 and dt != 0 and replan:
             print("\nNEXT STEP")
+            # get heading of ship and rotate primitives/goal accordingly to new lattice
             ship.initial_heading = -ship.body.angle + a_star.first_initial_heading
-            curr_pos = (ship_pos[0], ship_pos[1], 0)  # straight ahead of boat is 0
-            snapped_goal = snap_to_lattice(curr_pos, goal_pos, ship.initial_heading, turning_radius, prim.num_headings,
+            snapped_goal = snap_to_lattice(ship_pos, goal_pos, ship.initial_heading, turning_radius, prim.num_headings,
                                            abs_init_heading=ship.initial_heading)
 
             prim.rotate(-ship.body.angle, orig=True)
@@ -372,36 +371,43 @@ def main():
 
             print("INITIAL HEADING", ship.initial_heading)
             print("NEW GOAL", snapped_goal)
-            print("NEW START", curr_pos)
+            print("NEW START", ship_pos)
+
+            # Replan
             t0 = time.clock()
             worked, smoothed_edge_path, nodes_visited, x1, y1, x2, y2, orig_path = \
-                a_star.search(curr_pos, snapped_goal, swath_dict, smooth_path)
+                a_star.search(ship_pos, snapped_goal, swath_dict, smooth_path)
             t1 = time.clock() - t0
             print("PLAN TIME", t1)
+
             if worked:
                 print("Replanned Path", smoothed_edge_path)
+                # update obstacles and generate new path from output of A*
                 costmap_obj.update(polygons)
                 fig1, path_list = plot_path(fig1, costmap_obj, smoothed_edge_path, ship.initial_heading, turning_radius,
                                             smooth_path, prim, x1, x2, y1, y2, nodes_visited)
                 # plt.show()
+
+                # update to new path
                 path_list = path_list.T
                 path.path = path_list
                 line.set_xdata(path.path.T[0])
                 line.set_ydata(path.path.T[1])
                 ship.set_path_pos(0)
+
+                # update pure pursuit objects with new path
                 target_course.update(path.path.T[0], path.path.T[1])
                 state.update(ship.body.position.x, ship.body.position.y, ship.body.angle)
                 # plt.show(block=False)
-                # plt.pause(0.001)
 
-        # determine which part of the path ship is on and get translational/angular velocity for ship
+
         if ship.path_pos < np.shape(path.path)[0] - 1:
-            # Translate linear velocity () into direction of ship
+            # Translate linear velocity into direction of ship
             x_vel = math.sin(ship.body.angle)
             y_vel = math.cos(ship.body.angle)
             mag = math.sqrt(x_vel ** 2 + y_vel ** 2)
-            x_vel = x_vel / mag * vel_scale
-            y_vel = y_vel / mag * vel_scale
+            x_vel = x_vel / mag * vel
+            y_vel = y_vel / mag * vel
             ship.body.velocity = Vec2d(x_vel, y_vel)
 
             # Assign output of PID controller to angular velocity
@@ -428,6 +434,7 @@ def main():
         return []
 
     def animate_ship(dt, ship, patch):
+        # update ship patch in matplotlib animation
         heading = ship.body.angle
         R = np.asarray([[math.cos(heading), -math.sin(heading)], [math.sin(heading), math.cos(heading)]])
         vs = np.asarray(ship.shape.get_vertices()) @ R + np.asarray(ship.body.position)
@@ -435,6 +442,7 @@ def main():
         return patch,
 
     def animate_obstacle(dt, polygon, patch):
+        # update obstacles in matplotlib animation
         heading = polygon.body.angle
         R = np.asarray([[math.cos(heading), -math.sin(heading)], [math.sin(heading), math.cos(heading)]])
         vs = np.asarray(polygon.get_vertices()) @ R + np.asarray(polygon.body.position)
