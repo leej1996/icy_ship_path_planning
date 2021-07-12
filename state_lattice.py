@@ -20,6 +20,8 @@ from ship import Ship
 from utils import heading_to_world_frame, get_points_on_dubins_path
 
 
+at_goal = False
+
 class Path:
     def __init__(self, path: np.array):
         self.path = path
@@ -186,18 +188,20 @@ def main():
     allow_overlap = False  # if True allow overlap in ice obstacles
     obstacle_density = 6
     obstacle_penalty = 3
-
+    
     # --- A* --- #
     g_weight = 0.5  # cost = g_weight * g_score + h_weight * h_score
     h_weight = 0.5
     smooth_path = True  # if True run smoothing algorithm
-    replan = True  # if True rerun A* search at each time step
 
     # --- pid --- #
     Kp = 3
     Ki = 0.08
     Kd = 0.5
-
+    
+    # -- misc --- #
+    replan = True  # if True rerun A* search at each time step
+    save_animation = False
     # plt.ion()
 
     # load costmap object from file if specified
@@ -249,12 +253,12 @@ def main():
           "\n\toriginal path:  {:.4f}"
           "\n\twith smoothing: {:.4f}"
           "\n\tstraight path:  {:.4f}\n".format(og_length, smooth_length, straight_length))
-    try:
-        assert smoothed_cost <= recomputed_original_cost <= straight_path_cost, \
-            "smoothed cost should be less than original cost and original cost should be less than straight cost"
-    except AssertionError as error:
-        print(error)
-        costmap_obj.save_to_disk()
+    #try:
+        #assert smoothed_cost <= recomputed_original_cost <= straight_path_cost, \
+            #"smoothed cost should be less than original cost and original cost should be less than straight cost"
+    #except AssertionError as error:
+    #    print(error)
+    #    costmap_obj.save_to_disk()
 
     fig1, ax1 = plt.subplots(1, 2, figsize=(5, 10))
 
@@ -308,6 +312,7 @@ def main():
     fig2 = plt.figure()
     ax2 = plt.axes(xlim=(0, m), ylim=(0, n))
     ax2.set_aspect("equal")
+    line, = ax2.plot(path.path.T[0], path.path.T[1], 'r')
 
     # init PID controller
     pid = PID(Kp, Ki, Kd, 0)
@@ -315,16 +320,25 @@ def main():
     # pid.output_limits = (-0.01309 * ang_vel_scale, 0.01309 * ang_vel_scale)  # set limits at (-45 deg/min, 45 deg/min) as max angular velocity
     pid.output_limits = (-1, 1)
 
+    def gen():
+        global at_goal
+        i = 0
+        while not at_goal:
+            i += 1
+            yield i
+
     def init():
         ax2.add_patch(ship_patch)
+        line.set_ydata(path.path.T[1])
+        line.set_xdata(path.path.T[0])
         for patch in patch_list:
             ax2.add_patch(patch)
         if not replan:
             ax2.plot(path.path.T[0], path.path.T[1], 'r')
         return []
 
-    def animate(dt, ship_patch, ship, polygons, patch_list, path,
-                fig1, swath_dict):
+    def animate(dt, ship_patch, ship, polygons, patch_list, path, fig1, swath_dict):
+        global at_goal
         # print(dt)
         # 20 ms step size
         for x in range(10):
@@ -339,6 +353,12 @@ def main():
         # As the angular velocity in pymunk uses the same convention as ship.body.angle, we must flip the sign
         # of the output as well
         output = -pid(-ship.body.angle)
+
+        if a_star.dist(ship_pos, goal_pos) < 5:
+            at_goal = True
+            print("At goal")
+        else:
+            at_goal = False  # might not be needed
 
         if dt % 50 == 0 and dt != 0 and replan:
             print("\nNEXT STEP")
@@ -364,14 +384,16 @@ def main():
                 costmap_obj.update(polygons)
                 fig1, path_list = plot_path(fig1, costmap_obj, smoothed_edge_path, ship.initial_heading, turning_radius,
                                             smooth_path, prim, x1, x2, y1, y2, nodes_visited)
-                plt.show()
+                # plt.show()
                 path_list = path_list.T
                 path.path = path_list
+                line.set_xdata(path.path.T[0])
+                line.set_ydata(path.path.T[1])
                 ship.set_path_pos(0)
                 target_course.update(path.path.T[0], path.path.T[1])
                 state.update(ship.body.position.x, ship.body.position.y, ship.body.angle)
-                plt.show(block=False)
-                # plt.pause(0.0001)
+                # plt.show(block=False)
+                # plt.pause(0.001)
 
         # determine which part of the path ship is on and get translational/angular velocity for ship
         if ship.path_pos < np.shape(path.path)[0] - 1:
@@ -421,17 +443,21 @@ def main():
         return patch_list
 
     print("START ANIMATION")
-    frames = np.shape(path.path)[0]
+    #frames = np.shape(path.path)[0]
     anim = animation.FuncAnimation(fig2,
                                    animate,
                                    init_func=init,
-                                   frames=frames,
+                                   frames=gen,
                                    fargs=(ship_patch, ship, polygons, patch_list, path,
                                           fig1, swath_dict,),
                                    interval=20,
                                    blit=True,
-                                   repeat=False)
+                                   repeat=False,
+                                   save_count=1500
+                                   )
 
+    if save_animation:
+        anim.save("gifs/movie.gif", writer=animation.PillowWriter(fps=30))
     plt.show()
 
     # get response from user for saving costmap
