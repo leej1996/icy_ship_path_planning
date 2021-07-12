@@ -2,18 +2,17 @@ import math
 from typing import Tuple, List
 
 import dubins
-import os
-import pickle
 import numpy as np
-from cost_map import CostMap
 from skimage import draw
 
+from cost_map import CostMap
 from ship import Ship
 from utils import heading_to_world_frame
 
 
 def path_smoothing(path: List, path_length: List, cost_map: CostMap, start: Tuple, goal: Tuple,
-                   ship: Ship, num_nodes: int, dist_cuttoff: int = 100, eps: float = 1e-4):  # epsilon handles small error from dubins package
+                   ship: Ship, num_nodes: int, num_headings: int, dist_cuttoff: int = 100,
+                   eps: float = 1e-5):  # epsilon handles small error from dubins package
     print("Attempt Smoothing")
     chan_h, chan_w = np.shape(cost_map.cost_map)
     total_length = np.sum(path_length)
@@ -44,11 +43,11 @@ def path_smoothing(path: List, path_length: List, cost_map: CostMap, start: Tupl
         prev_node = path[node_id + offset - 1]
 
         # sample points between nodes
-        theta_0 = heading_to_world_frame(prev_node[2], ship.initial_heading)
-        theta_1 = heading_to_world_frame(node[2], ship.initial_heading)
-        prim = dubins.shortest_path((prev_node[0], prev_node[1], theta_0),
-                                    (node[0], node[1], theta_1), ship.turning_radius)
-        configurations, _ = prim.sample_many(0.1)
+        theta_0 = heading_to_world_frame(prev_node[2], ship.initial_heading, num_headings)
+        theta_1 = heading_to_world_frame(node[2], ship.initial_heading, num_headings)
+        dubins_path = dubins.shortest_path((prev_node[0], prev_node[1], theta_0),
+                                           (node[0], node[1], theta_1), ship.turning_radius - eps)
+        configurations, _ = dubins_path.sample_many(0.1)
 
         # if there are multiple nodes to be added between two nodes, try to space them out equally
         values = [configurations[int(i)] for i in
@@ -66,7 +65,7 @@ def path_smoothing(path: List, path_length: List, cost_map: CostMap, start: Tupl
                 if heading < 0:
                     heading = heading + 2 * math.pi
 
-                path.insert(node_id - 1 + inc + counter, (v[0], v[1], heading / (math.pi / 4)))
+                path.insert(node_id - 1 + inc + counter, (v[0], v[1], heading / (2 * math.pi / num_headings)))
                 inc += 1
         counter += num_values
         offset = offset + inc - 1
@@ -83,8 +82,8 @@ def path_smoothing(path: List, path_length: List, cost_map: CostMap, start: Tupl
         for j, vj in enumerate(path[i + 1:]):
             # determine cost between node vi and vj
             invalid = False
-            theta_0 = heading_to_world_frame(vi[2], ship.initial_heading) % (2 * math.pi)
-            theta_1 = heading_to_world_frame(vj[2], ship.initial_heading) % (2 * math.pi)
+            theta_0 = heading_to_world_frame(vi[2], ship.initial_heading, num_headings)
+            theta_1 = heading_to_world_frame(vj[2], ship.initial_heading, num_headings)
             dubins_path = dubins.shortest_path((vi[0], vi[1], theta_0),
                                                (vj[0], vj[1], theta_1),
                                                ship.turning_radius - eps)
