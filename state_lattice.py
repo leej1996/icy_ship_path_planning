@@ -275,9 +275,9 @@ def state_lattice_planner(file_name: str="test", g_weight: float=0.5, h_weight: 
 
     path = Path(path_list)
 
-    with open('test1.csv', 'a') as f:
-        string = str(g_weight) + "," + str(h_weight) + "," + str(t1) + "," + str(1/t1) + "," + str(len(nodes_visited))
-        print(string, file=f)
+    #with open('test1.csv', 'a') as f:
+    #    string = str(g_weight) + "," + str(h_weight) + "," + str(t1) + "," + str(1/t1) + "," + str(len(nodes_visited))
+    #    print(string, file=f)
     # From pure pursuit
     state = State(x=start_pos[0], y=start_pos[1], yaw=0.0, v=0.0)
     target_course = TargetCourse(path.path.T[0], path.path.T[1])
