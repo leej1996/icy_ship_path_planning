@@ -156,52 +156,23 @@ def create_node_plot(n, m, nodes_visited):
     return node_plot
 
 
-def main():
+def state_lattice_planner(file_name: str="test", g_weight: float=0.5, h_weight: float=0.5, costmap_file: str="",
+                          start_pos: tuple=(20, 10, 0), goal_pos: tuple=(20, 280, 0), initial_heading: float=math.pi/2, padding: int=0,
+                          turning_radius: int=8, vel: int=10, num_headings: int=8,
+                          num_obs: int=130, min_r: int=1, max_r: int=8, upper_offset: int=20, lower_offset: int=20, allow_overlap: bool=False,
+                          obstacle_density: int=6, obstacle_penalty: int=3,
+                          Kp: float=3, Ki: float=0.08, Kd: float=0.5,
+                          save_animation: bool=False, smooth_path: bool=False, replan: bool=False):
     # PARAM SETUP
     # --- costmap --- #
     n = 300  # channel height
     m = 40  # channel width
-    load_costmap_file = ""  # "sample_costmaps/random_obstacles_1.pk"
-
-    # --- ship --- #
-    start_pos = (20, 10, 0)  # (x, y, theta)
-    goal_pos = (20, 282, 0)
-    initial_heading = math.pi / 2
-    turning_radius = 8
-    vel = 10  # constant linear velocity of ship
-    padding = 3  # padding around ship vertices to increase footprint when computing path costs
-    ship_vertices = np.array([[1, 4],
-                              [-1, 4],
-                              [-1, -4],
-                              [1, -4]])
-
-    # --- primitives --- #
-    num_headings = 8
-
-    # --- ice --- #
-    num_obs = 130  # number of random ice obstacles
-    min_r = 1  # min ice radius
-    max_r = 8
-    upper_offset = 20  # offset from top of costmap where ice stops
-    lower_offset = 20  # offset from bottom of costmap where ice stops
-    allow_overlap = False  # if True allow overlap in ice obstacles
-    obstacle_density = 6
-    obstacle_penalty = 3
-    
-    # --- A* --- #
-    g_weight = 0.5  # cost = g_weight * g_score + h_weight * h_score
-    h_weight = 0.5
-
-    # --- pid --- #
-    Kp = 3
-    Ki = 0.08
-    Kd = 0.5
-
-    # -- misc --- #
-    smooth_path = False  # if True run smoothing algorithm
-    replan = True  # if True rerun A* search at each time step
-    save_animation = False  # if True save animation and don't show it
-
+    load_costmap_file = costmap_file
+    ship_vertices = np.array([[-1, -4],
+                              [1, -4],
+                              [1, 2],
+                              [0, 4],
+                              [-1, 2]])
 
     # load costmap object from file if specified
     if load_costmap_file:
@@ -224,6 +195,7 @@ def main():
     # generate swath dict
     swath_dict = swath.generate_swath(ship, prim)
 
+    print("WEIGHTS", g_weight, h_weight)
     # initialize a star object
     a_star = AStar(g_weight, h_weight, cmap=costmap_obj,
                    primitives=prim, ship=ship, first_initial_heading=initial_heading)
@@ -235,7 +207,8 @@ def main():
     t1 = time.clock() - t0
     print("Time elapsed: ", t1)
     print("Hz", 1 / t1)
-    print("smoothed path", smoothed_edge_path)
+    #print("smoothed path", smoothed_edge_path)
+    print("NODES VISITED", len(nodes_visited))
 
     recomputed_original_cost, og_length = costmap_obj.compute_path_cost(path=orig_path, ship=ship,
                                                                         num_headings=prim.num_headings,
@@ -244,14 +217,14 @@ def main():
                                                                  num_headings=prim.num_headings, reverse_path=True)
     straight_path_cost, straight_length = costmap_obj.compute_path_cost(path=[start_pos, goal_pos],
                                                                         num_headings=prim.num_headings, ship=ship)
-    print("\nPath cost:"
-          "\n\toriginal path:  {:.4f}"
-          "\n\twith smoothing: {:.4f}"
-          "\n\tstraight path:  {:.4f}\n".format(recomputed_original_cost, smoothed_cost, straight_path_cost))
-    print("\nPath length:"
-          "\n\toriginal path:  {:.4f}"
-          "\n\twith smoothing: {:.4f}"
-          "\n\tstraight path:  {:.4f}\n".format(og_length, smooth_length, straight_length))
+    #print("\nPath cost:"
+    #      "\n\toriginal path:  {:.4f}"
+    #      "\n\twith smoothing: {:.4f}"
+    #      "\n\tstraight path:  {:.4f}\n".format(recomputed_original_cost, smoothed_cost, straight_path_cost))
+    #print("\nPath length:"
+    #      "\n\toriginal path:  {:.4f}"
+    #      "\n\twith smoothing: {:.4f}"
+    #      "\n\tstraight path:  {:.4f}\n".format(og_length, smooth_length, straight_length))
     # try:
     #     assert smoothed_cost <= recomputed_original_cost <= straight_path_cost, \
     #         "smoothed cost should be less than original cost and original cost should be less than straight cost"
@@ -279,16 +252,16 @@ def main():
 
     print("HEADING", ship.body.angle)
     i = 0
-    vs = np.zeros((5, 2))
-    for ship_vertices in ship.shape.get_vertices():
-        x, y = ship_vertices.rotated(ship.body.angle) + ship.body.position
+    vs = np.zeros_like(ship.vertices)
+    for ship_vertex in ship.shape.get_vertices():
+        x, y = ship_vertex.rotated(ship.body.angle) + ship.body.position
         vs[i][0] = x
         vs[i][1] = y
         i += 1
 
     ship_patch = patches.Polygon(vs, True, color='green')
 
-    print("GENERATE OBSTACLES")
+    #print("GENERATE OBSTACLES")
     for obs in costmap_obj.obstacles:
         polygons.append(
             create_polygon(
@@ -302,6 +275,9 @@ def main():
 
     path = Path(path_list)
 
+    with open('test1.csv', 'a') as f:
+        string = str(g_weight) + "," + str(h_weight) + "," + str(t1) + "," + str(1/t1) + "," + str(len(nodes_visited))
+        print(string, file=f)
     # From pure pursuit
     state = State(x=start_pos[0], y=start_pos[1], yaw=0.0, v=0.0)
     target_course = TargetCourse(path.path.T[0], path.path.T[1])
@@ -449,7 +425,7 @@ def main():
         patch.set_xy(vs)
         return patch_list
 
-    print("START ANIMATION")
+    #print("START ANIMATION")
     #frames = np.shape(path.path)[0]
     anim = animation.FuncAnimation(fig2,
                                    animate,
@@ -464,11 +440,63 @@ def main():
                                    )
 
     if save_animation:
-        anim.save("gifs/movie.gif", writer=animation.PillowWriter(fps=30))
+        file_name = "gifs/" + file_name
+        anim.save(file_name, writer=animation.PillowWriter(fps=30))
     plt.show()
 
     # get response from user for saving costmap
     costmap_obj.save_to_disk()
+
+
+def main():
+    # PARAM SETUP
+    # --- costmap --- #
+    n = 300  # channel height
+    m = 40  # channel width
+    load_costmap_file = ""  # "sample_costmaps/random_obstacles_1.pk"
+
+    # --- ship --- #
+    start_pos = (20, 10, 0)  # (x, y, theta)
+    goal_pos = (20, 282, 0)
+    initial_heading = math.pi / 2
+    turning_radius = 8
+    vel = 10  # constant linear velocity of ship
+    padding = 3  # padding around ship vertices to increase footprint when computing path costs
+
+    # --- primitives --- #
+    num_headings = 8
+
+    # --- ice --- #
+    num_obs = 130  # number of random ice obstacles
+    min_r = 1  # min ice radius
+    max_r = 8
+    upper_offset = 20  # offset from top of costmap where ice stops
+    lower_offset = 20  # offset from bottom of costmap where ice stops
+    allow_overlap = False  # if True allow overlap in ice obstacles
+    obstacle_density = 6
+    obstacle_penalty = 3
+    
+    # --- A* --- #
+    g_weight = 0.5  # cost = g_weight * g_score + h_weight * h_score
+    h_weight = 0.5
+
+    # --- pid --- #
+    Kp = 3
+    Ki = 0.08
+    Kd = 0.5
+
+    # -- misc --- #
+    smooth_path = False  # if True run smoothing algorithm
+    replan = False  # if True rerun A* search at each time step
+    save_animation = False  # if True save animation and don't show it
+
+    state_lattice_planner(g_weight=g_weight, h_weight=h_weight, costmap_file=load_costmap_file,
+                          start_pos=start_pos, goal_pos=goal_pos, initial_heading=initial_heading, padding=padding,
+                          turning_radius=turning_radius, vel=vel, num_headings=num_headings,
+                          num_obs=num_obs, min_r=min_r, max_r=max_r, upper_offset=upper_offset, lower_offset=lower_offset,
+                          allow_overlap=allow_overlap, obstacle_density=obstacle_density, obstacle_penalty=obstacle_penalty,
+                          Kp=Kp, Ki=Ki, Kd=Kd,
+                          save_animation=save_animation, smooth_path=smooth_path, replan=replan)
 
 
 if __name__ == "__main__":
