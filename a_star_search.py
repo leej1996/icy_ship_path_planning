@@ -82,7 +82,7 @@ class AStar:
                         add_nodes = 10
                     # t0 = time.clock()
                     smooth_path, x1, y1, x2, y2 = path_smoothing(path, new_path_length, self.cmap, start, goal, self.ship,
-                                                                 add_nodes, self.primitives.num_headings, dist_cuttoff=30)
+                                                                 add_nodes, self.primitives.num_headings, dist_cuttoff=50)
                     # t1 = time.clock() - t0
                     # print("smooth time", t1)
                 else:
