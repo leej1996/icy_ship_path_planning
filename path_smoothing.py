@@ -106,7 +106,8 @@ def path_smoothing(path: List, path_length: List, cost_map: CostMap, start: Tupl
                 ])
 
                 # rotate/translate vertices of ship from origin to sampled point with heading = theta
-                rot_vi = np.round(np.array([[x_cell], [y_cell]]) + R @ ship.vertices.T).astype(int)
+                rot_vi = np.round(np.array([[x_cell], [y_cell]]) +
+                                  R @ np.asarray(ship.shape.get_vertices()).T).astype(int)
 
                 # check if any vertex of ship is outside of cost map (invalid path)
                 for v in rot_vi.T:

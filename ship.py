@@ -8,7 +8,7 @@ from pymunk import Vec2d
 
 class Ship:
     def __init__(self, vertices: np.ndarray, start_pos: Tuple, initial_heading: float, turning_radius: float,
-                 padding: float = 3):
+                 padding: float = 0):
         self.vertices = np.asarray(
             [[np.sign(a) * (abs(a) + padding), np.sign(b) * (abs(b) + padding)] for a, b in vertices]
         )

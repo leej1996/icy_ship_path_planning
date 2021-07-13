@@ -17,7 +17,7 @@ from utils import heading_to_world_frame
 
 
 class CostMap:
-    def __init__(self, n, m, obstacle_penalty):
+    def __init__(self, n: int, m: int, obstacle_penalty: float):
         self.n = n
         self.m = m
         self.cost_map = np.zeros((n, m))
@@ -28,9 +28,9 @@ class CostMap:
         # apply a cost to the boundaries of the channel
         self.boundary_cost()
 
-    def boundary_cost(self, exp_factor=2.0, cutoff_factor=0.25) -> None:
+    def boundary_cost(self, exp_factor=1.4, cutoff_factor=0.25) -> None:
         for col in range(self.m):
-            self.cost_map[:, col] = max(0, (np.abs(col - self.m / 2) - cutoff_factor * self.m)) ** exp_factor
+            self.cost_map[:, col] = max(0, (np.abs(col - self.m / 2) - cutoff_factor * self.m)) ** exp_factor * self.obstacle_penalty
 
     def generate_obstacles(self, start_pos, goal_pos, num_obs, min_r, max_r,
                            upper_offset, lower_offset, allow_overlap=True, debug=False) -> List[dict]:
@@ -244,7 +244,8 @@ class CostMap:
                 ])
 
                 # rotate/translate vertices of ship from origin to sampled point with heading = theta
-                rot_vi = np.round(np.array([[x_cell], [y_cell]]) + R @ ship.vertices.T).astype(int)
+                rot_vi = np.round(np.array([[x_cell], [y_cell]]) +
+                                  R @ np.asarray(ship.shape.get_vertices()).T).astype(int)
 
                 # draw rotated ship polygon and put occupied cells into a mask
                 rr, cc = draw.polygon(rot_vi[1, :], rot_vi[0, :], shape=self.cost_map.shape)
@@ -280,6 +281,19 @@ class CostMap:
                     'centre': list(obs.body.position),
                     'radius': r
                 })
+
+    def update2(self, obstacle_penalty: float):
+        # update attribute
+        self.obstacle_penalty = obstacle_penalty
+
+        # clear costmap and obstacles
+        self.cost_map[:] = 0
+        # recompute cost to the boundaries of the channel
+        self.boundary_cost()
+
+        # re-populate costmap with new costs of obstacles
+        for obs in self.obstacles:
+            self.populate_costmap(centre_coords=list(obs['centre']), radius=obs['radius'], polygon=obs['vertices'])
 
     def save_to_disk(self) -> None:
         save_costmap_file = input("\n\nFile name to save out costmap (press enter to ignore)\n").lower()

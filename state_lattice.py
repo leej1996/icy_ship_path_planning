@@ -19,8 +19,8 @@ from pure_pursuit import TargetCourse, State
 from ship import Ship
 from utils import heading_to_world_frame, get_points_on_dubins_path
 
-
 at_goal = False
+
 
 class Path:
     def __init__(self, path: np.array):
@@ -156,13 +156,15 @@ def create_node_plot(n, m, nodes_visited):
     return node_plot
 
 
-def state_lattice_planner(file_name: str="test", g_weight: float=0.5, h_weight: float=0.5, costmap_file: str="",
-                          start_pos: tuple=(20, 10, 0), goal_pos: tuple=(20, 280, 0), initial_heading: float=math.pi/2, padding: int=0,
-                          turning_radius: int=8, vel: int=10, num_headings: int=8,
-                          num_obs: int=130, min_r: int=1, max_r: int=8, upper_offset: int=20, lower_offset: int=20, allow_overlap: bool=False,
-                          obstacle_density: int=6, obstacle_penalty: int=3,
-                          Kp: float=3, Ki: float=0.08, Kd: float=0.5,
-                          save_animation: bool=False, smooth_path: bool=False, replan: bool=False):
+def state_lattice_planner(file_name: str = "test", g_weight: float = 0.5, h_weight: float = 0.5, costmap_file: str = "",
+                          start_pos: tuple = (20, 10, 0), goal_pos: tuple = (20, 280, 0),
+                          initial_heading: float = math.pi / 2, padding: int = 0,
+                          turning_radius: int = 8, vel: int = 10, num_headings: int = 8,
+                          num_obs: int = 130, min_r: int = 1, max_r: int = 8, upper_offset: int = 20,
+                          lower_offset: int = 20, allow_overlap: bool = False,
+                          obstacle_density: int = 6, obstacle_penalty: float = 3,
+                          Kp: float = 3, Ki: float = 0.08, Kd: float = 0.5,
+                          save_animation: bool = False, smooth_path: bool = False, replan: bool = False):
     # PARAM SETUP
     # --- costmap --- #
     n = 300  # channel height
@@ -178,6 +180,9 @@ def state_lattice_planner(file_name: str="test", g_weight: float=0.5, h_weight: 
     if load_costmap_file:
         with open(load_costmap_file, "rb") as fd:
             costmap_obj = pickle.load(fd)
+            # recompute costmap costs if obstacle penalty is different than original
+            if costmap_obj.obstacle_penalty != obstacle_penalty:
+                costmap_obj.update2(obstacle_penalty)
     else:
         # initialize costmap
         costmap_obj = CostMap(n, m, obstacle_penalty)
@@ -207,7 +212,7 @@ def state_lattice_planner(file_name: str="test", g_weight: float=0.5, h_weight: 
     t1 = time.clock() - t0
     print("Time elapsed: ", t1)
     print("Hz", 1 / t1)
-    #print("smoothed path", smoothed_edge_path)
+    # print("smoothed path", smoothed_edge_path)
     print("NODES VISITED", len(nodes_visited))
 
     recomputed_original_cost, og_length = costmap_obj.compute_path_cost(path=orig_path, ship=ship,
@@ -217,20 +222,20 @@ def state_lattice_planner(file_name: str="test", g_weight: float=0.5, h_weight: 
                                                                  num_headings=prim.num_headings, reverse_path=True)
     straight_path_cost, straight_length = costmap_obj.compute_path_cost(path=[start_pos, goal_pos],
                                                                         num_headings=prim.num_headings, ship=ship)
-    #print("\nPath cost:"
-    #      "\n\toriginal path:  {:.4f}"
-    #      "\n\twith smoothing: {:.4f}"
-    #      "\n\tstraight path:  {:.4f}\n".format(recomputed_original_cost, smoothed_cost, straight_path_cost))
-    #print("\nPath length:"
-    #      "\n\toriginal path:  {:.4f}"
-    #      "\n\twith smoothing: {:.4f}"
-    #      "\n\tstraight path:  {:.4f}\n".format(og_length, smooth_length, straight_length))
+    print("\nPath cost:"
+          "\n\toriginal path:  {:.4f}"
+          "\n\twith smoothing: {:.4f}"
+          "\n\tstraight path:  {:.4f}\n".format(recomputed_original_cost, smoothed_cost, straight_path_cost))
+    print("\nPath length:"
+          "\n\toriginal path:  {:.4f}"
+          "\n\twith smoothing: {:.4f}"
+          "\n\tstraight path:  {:.4f}\n".format(og_length, smooth_length, straight_length))
     # try:
     #     assert smoothed_cost <= recomputed_original_cost <= straight_path_cost, \
     #         "smoothed cost should be less than original cost and original cost should be less than straight cost"
     # except AssertionError as error:
-    #    print(error)
-    #    costmap_obj.save_to_disk()
+    #     print(error)
+    #     costmap_obj.save_to_disk()
 
     fig1, ax1 = plt.subplots(1, 2, figsize=(5, 10))
 
@@ -252,7 +257,7 @@ def state_lattice_planner(file_name: str="test", g_weight: float=0.5, h_weight: 
 
     print("HEADING", ship.body.angle)
     i = 0
-    vs = np.zeros_like(ship.vertices)
+    vs = np.zeros_like(np.asarray(ship.shape.get_vertices()))
     for ship_vertex in ship.shape.get_vertices():
         x, y = ship_vertex.rotated(ship.body.angle) + ship.body.position
         vs[i][0] = x
@@ -261,7 +266,7 @@ def state_lattice_planner(file_name: str="test", g_weight: float=0.5, h_weight: 
 
     ship_patch = patches.Polygon(vs, True, color='green')
 
-    #print("GENERATE OBSTACLES")
+    # print("GENERATE OBSTACLES")
     for obs in costmap_obj.obstacles:
         polygons.append(
             create_polygon(
@@ -275,7 +280,7 @@ def state_lattice_planner(file_name: str="test", g_weight: float=0.5, h_weight: 
 
     path = Path(path_list)
 
-    #with open('test1.csv', 'a') as f:
+    # with open('test1.csv', 'a') as f:
     #    string = str(g_weight) + "," + str(h_weight) + "," + str(t1) + "," + str(1/t1) + "," + str(len(nodes_visited))
     #    print(string, file=f)
     # From pure pursuit
@@ -318,7 +323,7 @@ def state_lattice_planner(file_name: str="test", g_weight: float=0.5, h_weight: 
         for x in range(10):
             space.step(2 / 100 / 10)
 
-        ship_pos = (ship.body.position.x, ship.body.position.y, 0) # straight ahead of boat is 0
+        ship_pos = (ship.body.position.x, ship.body.position.y, 0)  # straight ahead of boat is 0
 
         # Pymunk takes left turn as negative and right turn as positive in ship.body.angle
         # To get proper error, we must flip the sign on the angle, as to calculate the setpoint,
@@ -376,7 +381,6 @@ def state_lattice_planner(file_name: str="test", g_weight: float=0.5, h_weight: 
                 state.update(ship.body.position.x, ship.body.position.y, ship.body.angle)
                 # plt.show(block=False)
 
-
         if ship.path_pos < np.shape(path.path)[0] - 1:
             # Translate linear velocity into direction of ship
             x_vel = math.sin(ship.body.angle)
@@ -425,8 +429,8 @@ def state_lattice_planner(file_name: str="test", g_weight: float=0.5, h_weight: 
         patch.set_xy(vs)
         return patch_list
 
-    #print("START ANIMATION")
-    #frames = np.shape(path.path)[0]
+    # print("START ANIMATION")
+    # frames = np.shape(path.path)[0]
     anim = animation.FuncAnimation(fig2,
                                    animate,
                                    init_func=init,
@@ -461,7 +465,7 @@ def main():
     initial_heading = math.pi / 2
     turning_radius = 8
     vel = 10  # constant linear velocity of ship
-    padding = 3  # padding around ship vertices to increase footprint when computing path costs
+    padding = 0  # padding around ship vertices to increase footprint when computing path costs
 
     # --- primitives --- #
     num_headings = 8
@@ -474,11 +478,11 @@ def main():
     lower_offset = 20  # offset from bottom of costmap where ice stops
     allow_overlap = False  # if True allow overlap in ice obstacles
     obstacle_density = 6
-    obstacle_penalty = 3
-    
+    obstacle_penalty = 0.25
+
     # --- A* --- #
-    g_weight = 0.5  # cost = g_weight * g_score + h_weight * h_score
-    h_weight = 0.5
+    g_weight = 0.3  # cost = g_weight * g_score + h_weight * h_score
+    h_weight = 0.7
 
     # --- pid --- #
     Kp = 3
@@ -493,9 +497,9 @@ def main():
     state_lattice_planner(g_weight=g_weight, h_weight=h_weight, costmap_file=load_costmap_file,
                           start_pos=start_pos, goal_pos=goal_pos, initial_heading=initial_heading, padding=padding,
                           turning_radius=turning_radius, vel=vel, num_headings=num_headings,
-                          num_obs=num_obs, min_r=min_r, max_r=max_r, upper_offset=upper_offset, lower_offset=lower_offset,
-                          allow_overlap=allow_overlap, obstacle_density=obstacle_density, obstacle_penalty=obstacle_penalty,
-                          Kp=Kp, Ki=Ki, Kd=Kd,
+                          num_obs=num_obs, min_r=min_r, max_r=max_r, upper_offset=upper_offset,
+                          lower_offset=lower_offset, allow_overlap=allow_overlap, obstacle_density=obstacle_density,
+                          obstacle_penalty=obstacle_penalty, Kp=Kp, Ki=Ki, Kd=Kd,
                           save_animation=save_animation, smooth_path=smooth_path, replan=replan)
 
 
