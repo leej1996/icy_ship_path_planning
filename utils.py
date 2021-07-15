@@ -3,6 +3,9 @@ from typing import Tuple, List
 
 import dubins
 import numpy as np
+from matplotlib.axes import Axes
+
+from ship import Ship
 
 
 def heading_to_world_frame(heading: int, theta_0: float, num_headings: int):
@@ -13,17 +16,32 @@ def heading_to_world_frame(heading: int, theta_0: float, num_headings: int):
     return (heading * 2 * math.pi / num_headings + theta_0) % (2 * math.pi)
 
 
-def plot_path(ax, path, cost_map, ship, num_headings, eps=1e0):
-    ax.imshow(cost_map, origin='lower')
+def plot_path(ax: Axes, path: List, cost_map: np.ndarray, ship: Ship,
+              num_headings: int, return_points=False, eps: float = 1e0):
+    # lists to keep track of the points sampled along the path
+    p_x = []
+    p_y = []
+    p_theta = []
     for i in range(np.shape(path)[0] - 1):
         p1 = path[i]
         p2 = path[i + 1]
-        x, y, _ = get_points_on_dubins_path(p1, p2, num_headings, ship.initial_heading, ship.turning_radius, eps)
-        ax.plot(x, y, 'g')
+        x, y, theta = get_points_on_dubins_path(p1, p2, num_headings, ship.initial_heading, ship.turning_radius, eps)
+        p_x.extend(x)
+        p_y.extend(y)
+        p_theta.extend(theta)
 
-    x = [vi[0] for vi in path]
-    y = [vi[1] for vi in path]
-    ax.plot(x, y, 'bx')
+    # lists to store the x and y positions of the nodes
+    n_x = [vi[0] for vi in path]
+    n_y = [vi[1] for vi in path]
+
+    if return_points:
+        return n_x, n_y, p_x, p_y, p_theta
+
+    return [
+        ax.imshow(cost_map, origin='lower'),
+        *ax.plot(n_x, n_y, 'bx'),
+        *ax.plot(p_x, p_y, 'g')
+    ]
 
 
 def get_points_on_dubins_path(p1: Tuple, p2: Tuple, num_headings: int, initial_heading: float,
