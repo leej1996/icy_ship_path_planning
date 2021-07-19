@@ -34,14 +34,18 @@ def snap_to_lattice(start_pos, goal_pos, initial_heading, turning_radius, num_he
 
     # Rotate goal to lattice coordinate system
     R = np.asarray([
-        [np.cos(initial_heading), -np.sin(initial_heading)],
-        [np.sin(initial_heading), np.cos(initial_heading)]
+        [np.cos(0.05), -np.sin(0.05)],
+        [np.sin(0.05), np.cos(0.05)]
     ])
-
+    print(goal_pos, start_pos)
+    print(initial_heading)
+    print(R)
     # determine how far from lattice the goal position is
     difference = R @ np.array([[goal_pos[0] - start_pos[0]], [goal_pos[1] - start_pos[1]]])
     diff_y = difference[1][0] % turning_radius
     diff_x = difference[0][0] % turning_radius
+    print("HI", diff_x, diff_y)
+    print(difference)
 
     # determine difference in heading
     abs_init_heading = heading_to_world_frame(start_pos[2], initial_heading, num_headings) \
@@ -106,11 +110,12 @@ def create_polygon(space, staticBody, vertices, x, y, density):
     return shape
 
 
-def plot_path(fig1, costmap_obj, smoothed_edge_path, initial_heading, turning_radius, smooth_path, prim, x1, x2, y1, y2,
-              nodes_visited, eps=1e0):
-    plt.close(fig1)
-    fig1, ax1 = plt.subplots(1, 2, figsize=(5, 10))
-    ax1[0].imshow(costmap_obj.cost_map, origin='lower')
+def plot_path(ax1, costmap_obj, smoothed_edge_path, initial_heading, turning_radius, smooth_path, prim, x1, x2, y1, y2,
+              nodes_visited, eps=1e0, plot: bool = False):
+    #plt.close(fig1)
+    #fig1, ax1 = plt.subplots(1, 2, figsize=(5, 10))
+    if plot:
+        ax1[0].imshow(costmap_obj.cost_map, origin='lower')
     PATH = smoothed_edge_path[::-1]
     path = np.zeros((3, 1))  # what is this used for?
 
@@ -131,21 +136,23 @@ def plot_path(fig1, costmap_obj, smoothed_edge_path, initial_heading, turning_ra
             for e in edge_set:
                 p2 = AStar.concat(P1, e, base_heading, prim.num_headings)
                 x3, y3, _ = get_points_on_dubins_path(P1, p2, prim.num_headings, initial_heading, turning_radius, eps)
-                ax1[0].plot(x3, y3, 'r')
-
-        ax1[0].plot(x, y, 'g')
+                if plot:
+                    ax1[0].plot(x3, y3, 'r')
+        if plot:
+            ax1[0].plot(x, y, 'g')
         path = np.append(path, np.array([np.asarray(x).T, np.asarray(y).T, np.asarray(theta).T]), axis=1)
 
     path = np.delete(path, 0, 1)
 
-    for obs in costmap_obj.obstacles:
-        ax1[0].add_patch(patches.Polygon(obs['vertices'], True, fill=False))
-    ax1[0].plot(x1, y1, 'bx')
-    ax1[0].plot(x2, y2, 'gx')
+    if plot:
+        for obs in costmap_obj.obstacles:
+            ax1[0].add_patch(patches.Polygon(obs['vertices'], True, fill=False))
+        ax1[0].plot(x1, y1, 'bx')
+        ax1[0].plot(x2, y2, 'gx')
 
-    node_plot = create_node_plot(costmap_obj.n, costmap_obj.m, nodes_visited)
-    ax1[1].imshow(node_plot, origin='lower')
-    return fig1, path
+        node_plot = create_node_plot(costmap_obj.n, costmap_obj.m, nodes_visited)
+        ax1[1].imshow(node_plot, origin='lower')
+    return path
 
 
 def create_node_plot(n, m, nodes_visited):
@@ -164,7 +171,9 @@ def state_lattice_planner(file_name: str = "test", g_weight: float = 0.5, h_weig
                           lower_offset: int = 20, allow_overlap: bool = False,
                           obstacle_density: int = 6, obstacle_penalty: float = 3,
                           Kp: float = 3, Ki: float = 0.08, Kd: float = 0.5,
-                          save_animation: bool = False, smooth_path: bool = False, replan: bool = False):
+                          save_animation: bool = False, smooth_path: bool = False, replan: bool = False, save_costmap: bool = False):
+    global at_goal
+    at_goal = False
     # PARAM SETUP
     # --- costmap --- #
     n = 300  # channel height
@@ -191,6 +200,8 @@ def state_lattice_planner(file_name: str = "test", g_weight: float = 0.5, h_weig
         costmap_obj.generate_obstacles(start_pos, goal_pos, num_obs, min_r, max_r,
                                        upper_offset, lower_offset, allow_overlap)
 
+    orig_obstacles = costmap_obj.obstacles.copy()
+
     # initialize ship object
     ship = Ship(ship_vertices, start_pos, initial_heading, turning_radius, padding)
 
@@ -209,9 +220,9 @@ def state_lattice_planner(file_name: str = "test", g_weight: float = 0.5, h_weig
     worked, smoothed_edge_path, nodes_visited, x1, y1, x2, y2, orig_path = \
         a_star.search(start_pos, goal_pos, swath_dict, smooth_path)
 
-    t1 = time.clock() - t0
-    print("Time elapsed: ", t1)
-    print("Hz", 1 / t1)
+    init_plan_time = time.clock() - t0
+    print("Time elapsed: ", init_plan_time)
+    print("Hz", 1 / init_plan_time)
     # print("smoothed path", smoothed_edge_path)
     print("NODES VISITED", len(nodes_visited))
 
@@ -242,8 +253,8 @@ def state_lattice_planner(file_name: str = "test", g_weight: float = 0.5, h_weig
     # '''
     # FIXME: why regenerate again, can't we just do this in the smoothing step????
     if worked:
-        fig1, path_list = plot_path(fig1, costmap_obj, smoothed_edge_path, initial_heading, turning_radius,
-                                    smooth_path, prim, x1, x2, y1, y2, nodes_visited)
+        path_list = plot_path(ax1, costmap_obj, smoothed_edge_path, initial_heading, turning_radius,
+                              smooth_path, prim, x1, x2, y1, y2, nodes_visited, plot=True)
     else:
         path = 0
 
@@ -266,7 +277,7 @@ def state_lattice_planner(file_name: str = "test", g_weight: float = 0.5, h_weig
 
     ship_patch = patches.Polygon(vs, True, color='green')
 
-    # print("GENERATE OBSTACLES")
+    print("GENERATE OBSTACLES")
     for obs in costmap_obj.obstacles:
         polygons.append(
             create_polygon(
@@ -280,9 +291,6 @@ def state_lattice_planner(file_name: str = "test", g_weight: float = 0.5, h_weig
 
     path = Path(path_list)
 
-    # with open('test1.csv', 'a') as f:
-    #    string = str(g_weight) + "," + str(h_weight) + "," + str(t1) + "," + str(1/t1) + "," + str(len(nodes_visited))
-    #    print(string, file=f)
     # From pure pursuit
     state = State(x=start_pos[0], y=start_pos[1], yaw=0.0, v=0.0)
     target_course = TargetCourse(path.path.T[0], path.path.T[1])
@@ -316,7 +324,7 @@ def state_lattice_planner(file_name: str = "test", g_weight: float = 0.5, h_weig
             ax2.plot(path.path.T[0], path.path.T[1], 'r')
         return []
 
-    def animate(dt, ship_patch, ship, polygons, patch_list, path, fig1, swath_dict):
+    def animate(dt, ship_patch, ship, polygons, patch_list, path, swath_dict):
         global at_goal
         # print(dt)
         # 20 ms step size
@@ -339,6 +347,10 @@ def state_lattice_planner(file_name: str = "test", g_weight: float = 0.5, h_weig
         else:
             at_goal = False  # might not be needed
 
+        # update costmap on own frequency
+        if dt % 25 == 0:
+            costmap_obj.update(polygons)
+
         if dt % 50 == 0 and dt != 0 and replan:
             print("\nNEXT STEP")
             # get heading of ship and rotate primitives/goal accordingly to new lattice
@@ -360,13 +372,13 @@ def state_lattice_planner(file_name: str = "test", g_weight: float = 0.5, h_weig
                 a_star.search(ship_pos, snapped_goal, swath_dict, smooth_path)
             t1 = time.clock() - t0
             print("PLAN TIME", t1)
+            print("NODES VISITED", len(nodes_visited))
 
             if worked:
                 print("Replanned Path", smoothed_edge_path)
                 # update obstacles and generate new path from output of A*
-                costmap_obj.update(polygons)
-                fig1, path_list = plot_path(fig1, costmap_obj, smoothed_edge_path, ship.initial_heading, turning_radius,
-                                            smooth_path, prim, x1, x2, y1, y2, nodes_visited)
+                path_list = plot_path(ax1, costmap_obj, smoothed_edge_path, ship.initial_heading, turning_radius,
+                                      smooth_path, prim, x1, x2, y1, y2, nodes_visited, plot=False)
                 # plt.show()
 
                 # update to new path
@@ -429,14 +441,14 @@ def state_lattice_planner(file_name: str = "test", g_weight: float = 0.5, h_weig
         patch.set_xy(vs)
         return patch_list
 
-    # print("START ANIMATION")
+    print("START ANIMATION")
     # frames = np.shape(path.path)[0]
     anim = animation.FuncAnimation(fig2,
                                    animate,
                                    init_func=init,
                                    frames=gen,
                                    fargs=(ship_patch, ship, polygons, patch_list, path,
-                                          fig1, swath_dict,),
+                                          swath_dict,),
                                    interval=20,
                                    blit=True,
                                    repeat=False,
@@ -444,12 +456,24 @@ def state_lattice_planner(file_name: str = "test", g_weight: float = 0.5, h_weig
                                    )
 
     if save_animation:
-        file_name = "gifs/" + file_name
+        #file_name = "gifs/" + file_name
         anim.save(file_name, writer=animation.PillowWriter(fps=30))
     plt.show()
 
+    total_dist_moved = 0
+    # Compare cost maps
+    for i, j in zip(orig_obstacles, polygons):
+        pos = (j.body.position.x, j.body.position.y)
+        area = j.area
+        if area > 4:
+            total_dist_moved = a_star.dist(i['centre'], pos) * (area/2) + total_dist_moved
+
+    print("TOTAL DIST MOVED", total_dist_moved)
+
     # get response from user for saving costmap
-    costmap_obj.save_to_disk()
+    if save_costmap:
+        costmap_obj.save_to_disk()
+    return total_dist_moved, init_plan_time
 
 
 def main():
@@ -457,7 +481,7 @@ def main():
     # --- costmap --- #
     n = 300  # channel height
     m = 40  # channel width
-    load_costmap_file = ""  # "sample_costmaps/random_obstacles_1.pk"
+    load_costmap_file = "sample_costmaps/test3.pk" # "sample_costmaps/gold_test.pk"  # "sample_costmaps/random_obstacles_1.pk"
 
     # --- ship --- #
     start_pos = (20, 10, 0)  # (x, y, theta)
@@ -468,17 +492,17 @@ def main():
     padding = 0  # padding around ship vertices to increase footprint when computing path costs
 
     # --- primitives --- #
-    num_headings = 8
+    num_headings = 16
 
     # --- ice --- #
-    num_obs = 130  # number of random ice obstacles
+    num_obs = 100  # number of random ice obstacles
     min_r = 1  # min ice radius
-    max_r = 8
+    max_r = 5
     upper_offset = 20  # offset from top of costmap where ice stops
     lower_offset = 20  # offset from bottom of costmap where ice stops
     allow_overlap = False  # if True allow overlap in ice obstacles
     obstacle_density = 6
-    obstacle_penalty = 0.25
+    obstacle_penalty = 1
 
     # --- A* --- #
     g_weight = 0.3  # cost = g_weight * g_score + h_weight * h_score
@@ -493,14 +517,16 @@ def main():
     smooth_path = False  # if True run smoothing algorithm
     replan = False  # if True rerun A* search at each time step
     save_animation = False  # if True save animation and don't show it
+    save_costmap = False
+    file_name = "gifs/replan_test.gif"
 
-    state_lattice_planner(g_weight=g_weight, h_weight=h_weight, costmap_file=load_costmap_file,
+    state_lattice_planner(file_name=file_name, g_weight=g_weight, h_weight=h_weight, costmap_file=load_costmap_file,
                           start_pos=start_pos, goal_pos=goal_pos, initial_heading=initial_heading, padding=padding,
                           turning_radius=turning_radius, vel=vel, num_headings=num_headings,
                           num_obs=num_obs, min_r=min_r, max_r=max_r, upper_offset=upper_offset,
                           lower_offset=lower_offset, allow_overlap=allow_overlap, obstacle_density=obstacle_density,
                           obstacle_penalty=obstacle_penalty, Kp=Kp, Ki=Ki, Kd=Kd,
-                          save_animation=save_animation, smooth_path=smooth_path, replan=replan)
+                          save_animation=save_animation, smooth_path=smooth_path, replan=replan, save_costmap=save_costmap)
 
 
 if __name__ == "__main__":
