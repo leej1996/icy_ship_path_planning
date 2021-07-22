@@ -3,6 +3,7 @@ from typing import Tuple, List
 
 import dubins
 import numpy as np
+import pymunk
 from matplotlib.axes import Axes
 
 from ship import Ship
@@ -45,7 +46,8 @@ def plot_path(ax: Axes, path: List, cost_map: np.ndarray, ship: Ship,
 
 
 def get_points_on_dubins_path(p1: Tuple, p2: Tuple, num_headings: int, initial_heading: float,
-                              turning_radius: float, eps: float = 0., step_size: float = 0.2) -> Tuple[List, List, List]:
+                              turning_radius: float, eps: float = 0., step_size: float = 0.2) -> Tuple[
+    List, List, List]:
     theta_0 = heading_to_world_frame(p1[2], initial_heading, num_headings)
     theta_1 = heading_to_world_frame(p2[2], initial_heading, num_headings)
     dubins_path = dubins.shortest_path((p1[0], p1[1], theta_0),
@@ -57,3 +59,28 @@ def get_points_on_dubins_path(p1: Tuple, p2: Tuple, num_headings: int, initial_h
     theta = [item[2] - initial_heading for item in configurations]
 
     return x, y, theta
+
+
+def create_polygon(space, staticBody, vertices, x, y, density):
+    body = pymunk.Body()
+    body.position = (x, y)
+    shape = pymunk.Poly(body, vertices)
+    shape.density = density
+    space.add(body, shape)
+
+    # create pivot constraint to simulate linear friction
+    pivot = pymunk.constraints.PivotJoint(staticBody, body, (0, 0))
+    pivot.max_bias = 0
+    pivot.max_force = 10000.0
+
+    # create gear constraint to simulate angular friction
+    gear = pymunk.constraints.GearJoint(staticBody, body, 0, 1)
+    gear.max_bias = 0
+    gear.max_force = 5000.0
+    space.add(pivot, gear)
+    return shape
+
+
+class Path:
+    def __init__(self, path: np.array):
+        self.path = path

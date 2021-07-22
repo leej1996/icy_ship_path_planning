@@ -279,7 +279,15 @@ class CostMap:
                 self.obstacles.append({
                     'vertices': poly_vertices,
                     'centre': list(obs.body.position),
-                    'radius': r
+                    'radius': r,
+                    'on_map': True
+                })
+            else:  # still add the obstacle to the list so ordering stays the same
+                self.obstacles.append({
+                    'vertices': poly_vertices,
+                    'centre': list(obs.body.position),
+                    'radius': r,
+                    'on_map': False
                 })
 
     def update2(self, obstacle_penalty: float):

@@ -1,12 +1,12 @@
 import math
 import pickle
+import random
 import time
 
 import numpy as np
 import pymunk
 import pymunk.constraints
 from matplotlib import animation
-from matplotlib import patches
 from matplotlib import pyplot as plt
 from pymunk.vec2d import Vec2d
 from simple_pid import PID
@@ -14,17 +14,14 @@ from simple_pid import PID
 import swath
 from a_star_search import AStar
 from cost_map import CostMap
+from plot import Plot
 from primitives import Primitives
 from pure_pursuit import TargetCourse, State
 from ship import Ship
-from utils import heading_to_world_frame, get_points_on_dubins_path
+from utils import heading_to_world_frame, create_polygon, Path
 
+random.seed(1)  # make the simulation the same each time, easier to debug
 at_goal = False
-
-
-class Path:
-    def __init__(self, path: np.array):
-        self.path = path
 
 
 def snap_to_lattice(start_pos, goal_pos, initial_heading, turning_radius, num_headings,
@@ -69,91 +66,21 @@ def snap_to_lattice(start_pos, goal_pos, initial_heading, turning_radius, num_he
         else:
             new_goal_x = difference[0][0] - diff_x
 
-        # round to nearest cardinal/ordinal direction
+        # round to nearest base heading
         new_theta = round(diff / spacing)
         if new_theta > num_headings - 1:
-            new_theta = new_theta - num_headings
+            new_theta -= num_headings
 
         # rotate coordinates back to original frame
         new_goal = np.array([[new_goal_x], [new_goal_y]])
         new_goal = R.T @ new_goal
         goal_pos = (
-            round(new_goal[0][0] + start_pos[0], 5),
-            round(new_goal[1][0] + start_pos[1], 5),
+            new_goal[0][0] + start_pos[0],
+            new_goal[1][0] + start_pos[1],
             new_theta
         )
 
     return goal_pos
-
-
-def create_polygon(space, staticBody, vertices, x, y, density):
-    body = pymunk.Body()
-    body.position = (x, y)
-    shape = pymunk.Poly(body, vertices)
-    shape.density = density
-    space.add(body, shape)
-
-    # create pivot constraint to simulate linear friction
-    pivot = pymunk.constraints.PivotJoint(staticBody, body, (0, 0))
-    pivot.max_bias = 0
-    pivot.max_force = 10000.0
-
-    # create gear constraint to simulate angular friction
-    gear = pymunk.constraints.GearJoint(staticBody, body, 0, 1)
-    gear.max_bias = 0
-    gear.max_force = 5000.0
-    space.add(pivot, gear)
-    return shape
-
-
-def plot_path(fig1, costmap_obj, smoothed_edge_path, initial_heading, turning_radius, smooth_path, prim, x1, x2, y1, y2,
-              nodes_visited, eps=1e0):
-    plt.close(fig1)
-    fig1, ax1 = plt.subplots(1, 2, figsize=(5, 10))
-    ax1[0].imshow(costmap_obj.cost_map, origin='lower')
-    PATH = smoothed_edge_path[::-1]
-    path = np.zeros((3, 1))  # what is this used for?
-
-    for i in range(np.shape(PATH)[0] - 1):
-        P1 = PATH[i]
-        P2 = PATH[i + 1]
-        x, y, theta = get_points_on_dubins_path(P1, P2, prim.num_headings, initial_heading, turning_radius, eps)
-
-        if not smooth_path and False:  # only want to show primitives on un smoothed path
-            # find the base heading (e.g. cardinal or ordinal)
-            num_base_h = prim.num_headings // 4
-            arr = np.asarray([(P1[2] + num_base_h - h[2]) % num_base_h for h in prim.edge_set_dict.keys()])
-            base_heading = np.argwhere(arr == 0)[0, 0]
-
-            # get the edge set based on the current node heading
-            edge_set = prim.edge_set_dict[(0, 0, base_heading)]
-
-            for e in edge_set:
-                p2 = AStar.concat(P1, e, base_heading, prim.num_headings)
-                x3, y3, _ = get_points_on_dubins_path(P1, p2, prim.num_headings, initial_heading, turning_radius, eps)
-                ax1[0].plot(x3, y3, 'r')
-
-        ax1[0].plot(x, y, 'g')
-        path = np.append(path, np.array([np.asarray(x).T, np.asarray(y).T, np.asarray(theta).T]), axis=1)
-
-    path = np.delete(path, 0, 1)
-
-    for obs in costmap_obj.obstacles:
-        ax1[0].add_patch(patches.Polygon(obs['vertices'], True, fill=False))
-    ax1[0].plot(x1, y1, 'bx')
-    ax1[0].plot(x2, y2, 'gx')
-
-    node_plot = create_node_plot(costmap_obj.n, costmap_obj.m, nodes_visited)
-    ax1[1].imshow(node_plot, origin='lower')
-    return fig1, path
-
-
-def create_node_plot(n, m, nodes_visited):
-    node_plot = np.zeros((n, m))
-    for node in nodes_visited:
-        r, c = int(round(node[1])), int(round(node[0]))
-        node_plot[r, c] = node_plot[r, c] + 1
-    return node_plot
 
 
 def state_lattice_planner(file_name: str = "test", g_weight: float = 0.5, h_weight: float = 0.5, costmap_file: str = "",
@@ -190,7 +117,6 @@ def state_lattice_planner(file_name: str = "test", g_weight: float = 0.5, h_weig
         # generate random obstacles
         costmap_obj.generate_obstacles(start_pos, goal_pos, num_obs, min_r, max_r,
                                        upper_offset, lower_offset, allow_overlap)
-
     # initialize ship object
     ship = Ship(ship_vertices, start_pos, initial_heading, turning_radius, padding)
 
@@ -212,7 +138,6 @@ def state_lattice_planner(file_name: str = "test", g_weight: float = 0.5, h_weig
     t1 = time.clock() - t0
     print("Time elapsed: ", t1)
     print("Hz", 1 / t1)
-    # print("smoothed path", smoothed_edge_path)
     print("NODES VISITED", len(nodes_visited))
 
     recomputed_original_cost, og_length = costmap_obj.compute_path_cost(path=orig_path, ship=ship,
@@ -237,36 +162,24 @@ def state_lattice_planner(file_name: str = "test", g_weight: float = 0.5, h_weig
     #     print(error)
     #     costmap_obj.save_to_disk()
 
-    fig1, ax1 = plt.subplots(1, 2, figsize=(5, 10))
-
-    # '''
-    # FIXME: why regenerate again, can't we just do this in the smoothing step????
     if worked:
-        fig1, path_list = plot_path(fig1, costmap_obj, smoothed_edge_path, initial_heading, turning_radius,
-                                    smooth_path, prim, x1, x2, y1, y2, nodes_visited)
+        plot_obj = Plot(
+            costmap_obj, prim, ship, nodes_visited, smoothed_edge_path,
+            path_nodes=(x1, y1), smoothing_nodes=(x2, y2)
+        )
+        path = Path(plot_obj.full_path)
     else:
-        path = 0
+        print("Failed to find path at step 0")
+        exit(1)
 
+    # init pymunk sim
     space = pymunk.Space()
     space.add(ship.body, ship.shape)
     space.gravity = (0, 0)
     staticBody = space.static_body  # create a static body for friction constraints
 
+    # create the pymunk objects and the polygon patches for the ice
     polygons = []
-    patch_list = []
-
-    print("HEADING", ship.body.angle)
-    i = 0
-    vs = np.zeros_like(np.asarray(ship.shape.get_vertices()))
-    for ship_vertex in ship.shape.get_vertices():
-        x, y = ship_vertex.rotated(ship.body.angle) + ship.body.position
-        vs[i][0] = x
-        vs[i][1] = y
-        i += 1
-
-    ship_patch = patches.Polygon(vs, True, color='green')
-
-    # print("GENERATE OBSTACLES")
     for obs in costmap_obj.obstacles:
         polygons.append(
             create_polygon(
@@ -274,24 +187,11 @@ def state_lattice_planner(file_name: str = "test", g_weight: float = 0.5, h_weig
                 *obs['centre'], density=obstacle_density
             )
         )
-        patch_list.append(patches.Polygon(obs['vertices'], True))
 
-    path_list = path_list.T
-
-    path = Path(path_list)
-
-    # with open('test1.csv', 'a') as f:
-    #    string = str(g_weight) + "," + str(h_weight) + "," + str(t1) + "," + str(1/t1) + "," + str(len(nodes_visited))
-    #    print(string, file=f)
     # From pure pursuit
     state = State(x=start_pos[0], y=start_pos[1], yaw=0.0, v=0.0)
-    target_course = TargetCourse(path.path.T[0], path.path.T[1])
+    target_course = TargetCourse(path.path[0], path.path[1])
     target_ind = target_course.search_target_index(state)
-
-    fig2 = plt.figure()
-    ax2 = plt.axes(xlim=(0, m), ylim=(0, n))
-    ax2.set_aspect("equal")
-    line, = ax2.plot(path.path.T[0], path.path.T[1], 'r')
 
     # init PID controller
     pid = PID(Kp, Ki, Kd, 0)
@@ -304,21 +204,10 @@ def state_lattice_planner(file_name: str = "test", g_weight: float = 0.5, h_weig
         while not at_goal:
             i += 1
             yield i
+        raise StopIteration  # should stop animation
 
-    def init():
-        # Initialize the matplotlib animation
-        ax2.add_patch(ship_patch)
-        line.set_ydata(path.path.T[1])
-        line.set_xdata(path.path.T[0])
-        for patch in patch_list:
-            ax2.add_patch(patch)
-        if not replan:
-            ax2.plot(path.path.T[0], path.path.T[1], 'r')
-        return []
-
-    def animate(dt, ship_patch, ship, polygons, patch_list, path, fig1, swath_dict):
+    def animate(frame, swath_dict):
         global at_goal
-        # print(dt)
         # 20 ms step size
         for x in range(10):
             space.step(2 / 100 / 10)
@@ -336,10 +225,8 @@ def state_lattice_planner(file_name: str = "test", g_weight: float = 0.5, h_weig
         # check if ship is at goal
         if a_star.dist(ship_pos, goal_pos) < 5:
             at_goal = True
-        else:
-            at_goal = False  # might not be needed
 
-        if dt % 50 == 0 and dt != 0 and replan:
+        if frame % 50 == 0 and frame != 0 and replan:
             print("\nNEXT STEP")
             # get heading of ship and rotate primitives/goal accordingly to new lattice
             ship.initial_heading = -ship.body.angle + a_star.first_initial_heading
@@ -363,25 +250,24 @@ def state_lattice_planner(file_name: str = "test", g_weight: float = 0.5, h_weig
 
             if worked:
                 print("Replanned Path", smoothed_edge_path)
-                # update obstacles and generate new path from output of A*
-                costmap_obj.update(polygons)
-                fig1, path_list = plot_path(fig1, costmap_obj, smoothed_edge_path, ship.initial_heading, turning_radius,
-                                            smooth_path, prim, x1, x2, y1, y2, nodes_visited)
-                # plt.show()
+                plot_obj.update_path(
+                    smoothed_edge_path, path_nodes=(x1, y1), smoothing_nodes=(x2, y2), nodes_expanded=nodes_visited
+                )
 
                 # update to new path
-                path_list = path_list.T
-                path.path = path_list
-                line.set_xdata(path.path.T[0])
-                line.set_ydata(path.path.T[1])
+                path.path = plot_obj.full_path
                 ship.set_path_pos(0)
 
                 # update pure pursuit objects with new path
-                target_course.update(path.path.T[0], path.path.T[1])
+                target_course.update(path.path[0], path.path[1])
                 state.update(ship.body.position.x, ship.body.position.y, ship.body.angle)
-                # plt.show(block=False)
 
-        if ship.path_pos < np.shape(path.path)[0] - 1:
+            # update costmap and map fig
+            costmap_obj.update(polygons)
+            plot_obj.update_map()
+            plot_obj.map_fig.canvas.draw()
+
+        if ship.path_pos < np.shape(path.path)[1] - 1:
             # Translate linear velocity into direction of ship
             x_vel = math.sin(ship.body.angle)
             y_vel = math.cos(ship.body.angle)
@@ -402,45 +288,25 @@ def state_lattice_planner(file_name: str = "test", g_weight: float = 0.5, h_weig
             if ind != ship.path_pos:
                 # Find heading from current position to look ahead point
                 ship.set_path_pos(ind)
-                dy = path.path[ind][1] - ship.body.position.y
-                dx = path.path[ind][0] - ship.body.position.x
+                dy = path.path[1][ind] - ship.body.position.y
+                dx = path.path[0][ind] - ship.body.position.x
                 angle = np.arctan2(dy, dx) - a_star.first_initial_heading
                 # set setpoint for PID controller
                 pid.setpoint = angle
 
-        animate_ship(dt, ship, ship_patch)
-        for poly, patch in zip(polygons, patch_list):
-            animate_obstacle(dt, poly, patch)
-        return []
+        # at each step animate ship and obstacle patches
+        plot_obj.animate_ship()
+        plot_obj.animate_obstacles(polygons)
 
-    def animate_ship(dt, ship, patch):
-        # update ship patch in matplotlib animation
-        heading = ship.body.angle
-        R = np.asarray([[math.cos(heading), -math.sin(heading)], [math.sin(heading), math.cos(heading)]])
-        vs = np.asarray(ship.shape.get_vertices()) @ R + np.asarray(ship.body.position)
-        patch.set_xy(vs)
-        return patch,
+        return plot_obj.get_sim_artists()
 
-    def animate_obstacle(dt, polygon, patch):
-        # update obstacles in matplotlib animation
-        heading = polygon.body.angle
-        R = np.asarray([[math.cos(heading), -math.sin(heading)], [math.sin(heading), math.cos(heading)]])
-        vs = np.asarray(polygon.get_vertices()) @ R + np.asarray(polygon.body.position)
-        patch.set_xy(vs)
-        return patch_list
-
-    # print("START ANIMATION")
-    # frames = np.shape(path.path)[0]
-    anim = animation.FuncAnimation(fig2,
+    anim = animation.FuncAnimation(plot_obj.sim_fig,
                                    animate,
-                                   init_func=init,
                                    frames=gen,
-                                   fargs=(ship_patch, ship, polygons, patch_list, path,
-                                          fig1, swath_dict,),
+                                   fargs=(swath_dict,),
                                    interval=20,
                                    blit=True,
                                    repeat=False,
-                                   save_count=1500
                                    )
 
     if save_animation:
@@ -493,8 +359,9 @@ def main():
     smooth_path = False  # if True run smoothing algorithm
     replan = False  # if True rerun A* search at each time step
     save_animation = False  # if True save animation and don't show it
+    file_name = "test-1.gif"
 
-    state_lattice_planner(g_weight=g_weight, h_weight=h_weight, costmap_file=load_costmap_file,
+    state_lattice_planner(file_name=file_name, g_weight=g_weight, h_weight=h_weight, costmap_file=load_costmap_file,
                           start_pos=start_pos, goal_pos=goal_pos, initial_heading=initial_heading, padding=padding,
                           turning_radius=turning_radius, vel=vel, num_headings=num_headings,
                           num_obs=num_obs, min_r=min_r, max_r=max_r, upper_offset=upper_offset,
