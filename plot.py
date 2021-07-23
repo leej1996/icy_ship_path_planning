@@ -6,6 +6,7 @@ import numpy as np
 from matplotlib import patches
 from pymunk import Poly
 
+from a_star_search import AStar
 from cost_map import CostMap
 from primitives import Primitives
 from ship import Ship
@@ -44,7 +45,7 @@ class Plot:
         )
 
         # plot the path
-        p_x, p_y, p_theta = self.get_points_on_path(path)
+        p_x, p_y, p_theta = self.get_points_on_path(path, show_prims=False)
         # show the path on both the map and sim plot
         self.path_line = [
             *self.map_ax[0].plot(p_x, p_y, 'g'),
@@ -130,7 +131,7 @@ class Plot:
             vs = np.asarray(poly.get_vertices()) @ R + np.asarray(poly.body.position)
             patch.set_xy(vs)
 
-    def get_points_on_path(self, path: List) -> Tuple[List, List, List]:
+    def get_points_on_path(self, path: List, show_prims: bool = False, eps: float = 1e-5) -> Tuple[List, List, List]:
         p_x, p_y, p_theta = [], [], []
         # reverse the path
         path = path[::-1]
@@ -138,11 +139,28 @@ class Plot:
             p1 = path[i]
             p2 = path[i + 1]
             x, y, theta = get_points_on_dubins_path(
-                p1, p2, self.prim.num_headings, self.ship.initial_heading, self.ship.turning_radius, eps=1e-5
+                p1, p2, self.prim.num_headings, self.ship.initial_heading, self.ship.turning_radius, eps
             )
             p_x.extend(x)
             p_y.extend(y)
             p_theta.extend(theta)
+
+            if show_prims:  # only want to show primitives on un smoothed path
+                # find the base heading (e.g. cardinal or ordinal)
+                num_base_h = self.prim.num_headings // 4
+                arr = np.asarray([(p1[2] + num_base_h - h[2]) % num_base_h for h in self.prim.edge_set_dict.keys()])
+                base_heading = np.argwhere(arr == 0)[0, 0]
+
+                # get the edge set based on the current node heading
+                edge_set = self.prim.edge_set_dict[(0, 0, base_heading)]
+
+                for e in edge_set:
+                    p2 = AStar.concat(p1, e, base_heading, self.prim.num_headings)
+                    x, y, _ = get_points_on_dubins_path(
+                        p1, p2, self.prim.num_headings, self.ship.initial_heading, self.ship.turning_radius, eps
+                    )
+                    self.map_ax[0].plot(x, y, 'r')
+
         return p_x, p_y, p_theta
 
     def get_sim_artists(self) -> Iterable:
