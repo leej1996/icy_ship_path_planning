@@ -1,4 +1,6 @@
 import math
+from multiprocessing import Process, Pipe, Event, Queue
+from queue import Empty
 import pickle
 import random
 import time
@@ -12,7 +14,7 @@ from pymunk.vec2d import Vec2d
 from simple_pid import PID
 
 import swath
-from a_star_search import AStar
+from a_star_search import AStar, gen_path
 from cost_map import CostMap
 from plot import Plot
 from primitives import Primitives
@@ -24,68 +26,10 @@ random.seed(1)  # make the simulation the same each time, easier to debug
 at_goal = False
 
 
-def snap_to_lattice(start_pos, goal_pos, initial_heading, turning_radius, num_headings,
-                    abs_init_heading=None, abs_goal_heading=None):
-    # compute the spacing between base headings
-    spacing = 2 * math.pi / num_headings
-
-    # Rotate goal to lattice coordinate system
-    R = np.asarray([
-        [np.cos(initial_heading), -np.sin(initial_heading)],
-        [np.sin(initial_heading), np.cos(initial_heading)]
-    ])
-
-    # determine how far from lattice the goal position is
-    difference = R @ np.array([[goal_pos[0] - start_pos[0]], [goal_pos[1] - start_pos[1]]])
-    diff_y = difference[1][0] % turning_radius
-    diff_x = difference[0][0] % turning_radius
-
-    # determine difference in heading
-    abs_init_heading = heading_to_world_frame(start_pos[2], initial_heading, num_headings) \
-        if abs_init_heading is None else abs_init_heading
-    abs_goal_heading = heading_to_world_frame(goal_pos[2], initial_heading, num_headings) \
-        if abs_goal_heading is None else abs_goal_heading
-    diff = abs_goal_heading - abs_init_heading
-
-    if diff < 0:
-        diff = diff + (2 * math.pi)
-
-    # check if x,y coordinates or heading are off lattice
-    if diff_y != 0 or diff_x != 0 or diff % spacing != 0:
-        if diff_y >= turning_radius / 2:
-            new_goal_y = difference[1][0] + turning_radius - diff_y
-        elif diff_y == 0:
-            new_goal_y = difference[1][0]  # no change
-        else:
-            new_goal_y = difference[1][0] - diff_y
-
-        if diff_x >= turning_radius / 2:
-            new_goal_x = difference[0][0] + turning_radius - diff_x
-        elif diff_x == 0:
-            new_goal_x = difference[0][0]
-        else:
-            new_goal_x = difference[0][0] - diff_x
-
-        # round to nearest base heading
-        new_theta = round(diff / spacing)
-        if new_theta > num_headings - 1:
-            new_theta -= num_headings
-
-        # rotate coordinates back to original frame
-        new_goal = np.array([[new_goal_x], [new_goal_y]])
-        new_goal = R.T @ new_goal
-        goal_pos = (
-            new_goal[0][0] + start_pos[0],
-            new_goal[1][0] + start_pos[1],
-            new_theta
-        )
-
-    return goal_pos
-
-
 def state_lattice_planner(file_name: str = "test", g_weight: float = 0.5, h_weight: float = 0.5, costmap_file: str = "",
                           start_pos: tuple = (20, 10, 0), goal_pos: tuple = (20, 280, 0),
                           initial_heading: float = math.pi / 2, padding: int = 0,
+
                           turning_radius: int = 8, vel: int = 10, num_headings: int = 8,
                           num_obs: int = 130, min_r: int = 1, max_r: int = 8, upper_offset: int = 20,
                           lower_offset: int = 20, allow_overlap: bool = False,
@@ -206,13 +150,29 @@ def state_lattice_planner(file_name: str = "test", g_weight: float = 0.5, h_weig
             yield i
         raise StopIteration  # should stop animation
 
-    def animate(frame, swath_dict):
+    def animate(frame, queue_state, pipe_path):
         global at_goal
-        # 20 ms step size
-        for x in range(10):
-            space.step(2 / 100 / 10)
 
+        steps = 10
+        # move simulation forward 20 ms seconds:
+        for x in range(steps):
+            space.step(0.02 / steps)
+
+        # update costmap
+        costmap_obj.update(polygons)
+
+        # get current state
         ship_pos = (ship.body.position.x, ship.body.position.y, 0)  # straight ahead of boat is 0
+
+        # check if ship is at goal
+        if a_star.dist(ship_pos, goal_pos) < 5:
+            at_goal = True
+            print("\nAt goal, shutting down...")
+            plt.close(plot_obj.map_fig)
+            plt.close(plot_obj.sim_fig)
+            queue_state.close()
+            shutdown_event.set()
+            return []
 
         # Pymunk takes left turn as negative and right turn as positive in ship.body.angle
         # To get proper error, we must flip the sign on the angle, as to calculate the setpoint,
@@ -222,49 +182,43 @@ def state_lattice_planner(file_name: str = "test", g_weight: float = 0.5, h_weig
         # of the output as well
         output = -pid(-ship.body.angle)
 
-        # check if ship is at goal
-        if a_star.dist(ship_pos, goal_pos) < 5:
-            at_goal = True
+        # should play around with frequency at which new state data is sent
+        if frame % 20 == 0 and frame != 0 and replan:
+            try:
+                # empty queue to ensure latest state data is pushed
+                queue_state.get_nowait()
+            except Empty:
+                pass
 
-        if frame % 50 == 0 and frame != 0 and replan:
-            print("\nNEXT STEP")
-            # get heading of ship and rotate primitives/goal accordingly to new lattice
-            ship.initial_heading = -ship.body.angle + a_star.first_initial_heading
-            snapped_goal = snap_to_lattice(ship_pos, goal_pos, ship.initial_heading, turning_radius, prim.num_headings,
-                                           abs_init_heading=ship.initial_heading)
+            # send updated state via queue
+            queue_state.put({
+                'ship_pos': ship_pos,
+                'ship_body_angle': ship.body.angle,
+                'costmap': costmap_obj.cost_map,
+                'obstacles': costmap_obj.obstacles,
+            }, block=False)
 
-            prim.rotate(-ship.body.angle, orig=True)
+        # check if there is a new path
+        if pipe_path.poll():
+            # get new path
+            path_data = pipe_path.recv()
+            print('\nReceived replanned path!\n', path_data['path'])
 
-            swath_dict = swath.update_swath(theta=-ship.body.angle, swath_dict=swath_dict)
+            plot_obj.update_path(
+                path_data['path'], prim.num_headings, path_data['initial_heading'], ship.turning_radius,
+                path_data['path_nodes'], path_data['smoothing_nodes'], path_data['nodes_expanded']
+            )
 
-            print("INITIAL HEADING", ship.initial_heading)
-            print("NEW GOAL", snapped_goal)
-            print("NEW START", ship_pos)
+            # update to new path
+            path.path = plot_obj.full_path
+            ship.set_path_pos(0)
 
-            # Replan
-            t0 = time.clock()
-            worked, smoothed_edge_path, nodes_visited, x1, y1, x2, y2, orig_path = \
-                a_star.search(ship_pos, snapped_goal, swath_dict, smooth_path)
-            t1 = time.clock() - t0
-            print("PLAN TIME", t1)
-
-            if worked:
-                print("Replanned Path", smoothed_edge_path)
-                plot_obj.update_path(
-                    smoothed_edge_path, path_nodes=(x1, y1), smoothing_nodes=(x2, y2), nodes_expanded=nodes_visited
-                )
-
-                # update to new path
-                path.path = plot_obj.full_path
-                ship.set_path_pos(0)
-
-                # update pure pursuit objects with new path
-                target_course.update(path.path[0], path.path[1])
-                state.update(ship.body.position.x, ship.body.position.y, ship.body.angle)
+            # update pure pursuit objects with new path
+            target_course.update(path.path[0], path.path[1])
+            state.update(ship.body.position.x, ship.body.position.y, ship.body.angle)
 
             # update costmap and map fig
-            costmap_obj.update(polygons)
-            plot_obj.update_map()
+            plot_obj.update_map(costmap_obj.cost_map, costmap_obj.obstacles)
             plot_obj.map_fig.canvas.draw()
 
         if ship.path_pos < np.shape(path.path)[1] - 1:
@@ -295,15 +249,29 @@ def state_lattice_planner(file_name: str = "test", g_weight: float = 0.5, h_weig
                 pid.setpoint = angle
 
         # at each step animate ship and obstacle patches
-        plot_obj.animate_ship()
+        plot_obj.animate_ship(ship)
         plot_obj.animate_obstacles(polygons)
 
         return plot_obj.get_sim_artists()
 
+    # multiprocessing setup
+    lifo_queue = Queue(maxsize=1)  # LIFO queue to send state information to A*
+    conn_recv, conn_send = Pipe(duplex=False)  # pipe to send new path to controller and for plotting
+    shutdown_event = Event()
+
+    # setup a process to run A*
+    print('\nStart process...')
+    gen_path_process = Process(
+        target=gen_path, args=(lifo_queue, conn_send, shutdown_event, ship, prim,
+                               costmap_obj, swath_dict, a_star, goal_pos)
+    )
+    gen_path_process.start()
+
+    # start animation in main process
     anim = animation.FuncAnimation(plot_obj.sim_fig,
                                    animate,
                                    frames=gen,
-                                   fargs=(swath_dict,),
+                                   fargs=(lifo_queue, conn_recv,),
                                    interval=20,
                                    blit=True,
                                    repeat=False,
@@ -313,6 +281,11 @@ def state_lattice_planner(file_name: str = "test", g_weight: float = 0.5, h_weig
         file_name = "gifs/" + file_name
         anim.save(file_name, writer=animation.PillowWriter(fps=30))
     plt.show()
+
+    shutdown_event.set()
+    print('...done with process')
+    gen_path_process.join()
+    print('Completed multiprocessing')
 
     # get response from user for saving costmap
     costmap_obj.save_to_disk()
@@ -357,7 +330,7 @@ def main():
 
     # -- misc --- #
     smooth_path = False  # if True run smoothing algorithm
-    replan = False  # if True rerun A* search at each time step
+    replan = True  # if True rerun A* search at each time step
     save_animation = False  # if True save animation and don't show it
     file_name = "test-1.gif"
 

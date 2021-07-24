@@ -1,12 +1,11 @@
 import math
-from typing import List, Tuple, Iterable
+from typing import List, Tuple, Iterable, Dict
 
 import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib import patches
 from pymunk import Poly
 
-from a_star_search import AStar
 from cost_map import CostMap
 from primitives import Primitives
 from ship import Ship
@@ -31,21 +30,18 @@ class Plot:
         self.sim_ax.set_ylim(0, costmap.n)
         self.sim_ax.set_aspect("equal")
 
-        # add attributes to store references to costmap, prim and ship objects
-        self.map, self.prim, self.ship = costmap, prim, ship
-
         # plot the nodes that were expanded
         self.node_plot_image = self.map_ax[1].imshow(
-            self.create_node_plot(self.map.cost_map, nodes_expanded), origin='lower'
+            self.create_node_plot(nodes_expanded, shape=costmap.cost_map.shape), origin='lower'
         )
 
         # plot the costmap
         self.costmap_image = self.map_ax[0].imshow(
-            self.map.cost_map, origin='lower'
+            costmap.cost_map, origin='lower'
         )
 
         # plot the path
-        p_x, p_y, p_theta = self.get_points_on_path(path, show_prims=False)
+        p_x, p_y, p_theta = self.get_points_on_path(path, prim.num_headings, ship.initial_heading, ship.turning_radius)
         # show the path on both the map and sim plot
         self.path_line = [
             *self.map_ax[0].plot(p_x, p_y, 'g'),
@@ -62,7 +58,7 @@ class Plot:
 
         # add the patches for the ice and ship to both plots
         self.obs_patches = [[], []]
-        for obs in self.map.obstacles:
+        for obs in costmap.obstacles:
             self.obs_patches[0].append(
                 self.map_ax[0].add_patch(
                     patches.Polygon(obs['vertices'], True, fill=False)
@@ -86,20 +82,20 @@ class Plot:
             patches.Polygon(vs, True, color='green')
         )
 
-    def update_map(self) -> None:
+    def update_map(self, cost_map: np.ndarray, obstacles: Dict) -> None:
         # update the costmap plot
-        self.costmap_image.set_data(self.map.cost_map)
+        self.costmap_image.set_data(cost_map)
 
         # update the patches on the map plot
-        for idx, obs in enumerate(self.map.obstacles):
+        for idx, obs in enumerate(obstacles):
             # only add patch if obs is on the map
             if obs['on_map']:
                 self.obs_patches[0][idx].set_xy(obs['vertices'])
 
-    def update_path(self, path: List, path_nodes: Tuple[List, List],
-                    smoothing_nodes: Tuple[List, List], nodes_expanded: List) -> None:
+    def update_path(self, path: List, num_headings: int, initial_heading: float, turning_radius: float,
+                    path_nodes: Tuple[List, List], smoothing_nodes: Tuple[List, List], nodes_expanded: List) -> None:
         # plot the new path
-        p_x, p_y, p_theta = self.get_points_on_path(path)
+        p_x, p_y, p_theta = self.get_points_on_path(path, num_headings, initial_heading, turning_radius)
         # show the new path on both the sim and map plot
         for line in self.path_line:
             line.set_data(p_x, p_y)
@@ -107,19 +103,19 @@ class Plot:
 
         # update the node plot
         self.node_plot_image.set_data(
-            self.create_node_plot(self.map.cost_map, nodes_expanded)
+            self.create_node_plot(nodes_expanded, shape=self.node_plot_image.get_array().shape)
         )
 
         # update the nodes lines
         for line, nodes in zip(self.nodes_line, [path_nodes, smoothing_nodes]):
             line.set_data(nodes[0], nodes[1])
 
-    def animate_ship(self) -> None:
-        heading = self.ship.body.angle
+    def animate_ship(self, ship) -> None:
+        heading = ship.body.angle
         R = np.asarray([
             [math.cos(heading), -math.sin(heading)], [math.sin(heading), math.cos(heading)]
         ])
-        vs = np.asarray(self.ship.shape.get_vertices()) @ R + np.asarray(self.ship.body.position)
+        vs = np.asarray(ship.shape.get_vertices()) @ R + np.asarray(ship.body.position)
         self.ship_patch.set_xy(vs)
 
     def animate_obstacles(self, polygons: List[Poly]) -> None:
@@ -131,7 +127,14 @@ class Plot:
             vs = np.asarray(poly.get_vertices()) @ R + np.asarray(poly.body.position)
             patch.set_xy(vs)
 
-    def get_points_on_path(self, path: List, show_prims: bool = False, eps: float = 1e-5) -> Tuple[List, List, List]:
+    def get_sim_artists(self) -> Iterable:
+        return (
+            self.path_line[1], self.ship_patch, *self.obs_patches[1]
+        )
+
+    @staticmethod
+    def get_points_on_path(path: List, num_headings: int, initial_heading: float, turning_radius: float,
+                           show_prims: bool = False, eps: float = 1e-5) -> Tuple[List, List, List]:
         p_x, p_y, p_theta = [], [], []
         # reverse the path
         path = path[::-1]
@@ -139,38 +142,17 @@ class Plot:
             p1 = path[i]
             p2 = path[i + 1]
             x, y, theta = get_points_on_dubins_path(
-                p1, p2, self.prim.num_headings, self.ship.initial_heading, self.ship.turning_radius, eps
+                p1, p2, num_headings, initial_heading, turning_radius, eps
             )
             p_x.extend(x)
             p_y.extend(y)
             p_theta.extend(theta)
 
-            if show_prims:  # only want to show primitives on un smoothed path
-                # find the base heading (e.g. cardinal or ordinal)
-                num_base_h = self.prim.num_headings // 4
-                arr = np.asarray([(p1[2] + num_base_h - h[2]) % num_base_h for h in self.prim.edge_set_dict.keys()])
-                base_heading = np.argwhere(arr == 0)[0, 0]
-
-                # get the edge set based on the current node heading
-                edge_set = self.prim.edge_set_dict[(0, 0, base_heading)]
-
-                for e in edge_set:
-                    p2 = AStar.concat(p1, e, base_heading, self.prim.num_headings)
-                    x, y, _ = get_points_on_dubins_path(
-                        p1, p2, self.prim.num_headings, self.ship.initial_heading, self.ship.turning_radius, eps
-                    )
-                    self.map_ax[0].plot(x, y, 'r')
-
         return p_x, p_y, p_theta
 
-    def get_sim_artists(self) -> Iterable:
-        return (
-            self.path_line[1], self.ship_patch, *self.obs_patches[1]
-        )
-
     @staticmethod
-    def create_node_plot(costmap: np.ndarray, nodes_expanded: List) -> np.ndarray:
-        node_plot = np.zeros_like(costmap)
+    def create_node_plot(nodes_expanded: List, shape: Tuple) -> np.ndarray:
+        node_plot = np.zeros(shape)
         for node in nodes_expanded:
             r, c = int(round(node[1])), int(round(node[0]))
             node_plot[r, c] = node_plot[r, c] + 1
