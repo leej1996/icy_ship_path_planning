@@ -5,7 +5,7 @@ import time
 
 n = 300  # channel height
 m = 40  # channel width
-load_costmap_file = "sample_costmaps/test3.pk"  # "sample_costmaps/random_obstacles_1.pk"
+load_costmap_file = "sample_costmaps/smooth_test.pk"  # "sample_costmaps/random_obstacles_1.pk"
 
 # --- ship --- #
 start_pos = (20, 10, 0)  # (x, y, theta)
@@ -16,7 +16,7 @@ vel = 10  # constant linear velocity of ship
 padding = 0  # padding around ship vertices to increase footprint when computing path costs
 
 # --- primitives --- #
-num_headings = 16
+num_headings = 8
 
 # --- ice --- #
 num_obs = 100  # number of random ice obstacles
@@ -59,7 +59,7 @@ for i in range(10):
 
 string = ""
 string1 = ""
-with open('distance_test.csv', 'a') as f:
+with open('smooth_test.csv', 'a') as f:
     for dist in list_of_dist:
         string = string + str(dist) + ","
     print(string, file=f)
