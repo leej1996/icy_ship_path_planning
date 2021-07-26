@@ -23,8 +23,23 @@ at_goal = False
 
 
 class Path:
-    def __init__(self, path: np.array):
+    '''
+    There are two path objects, the output from a star that the cost can be calculated from, and the path with many more nodes
+    that the ship actually follows.
+    '''
+    def __init__(self, path: np.array, planned_path: np.array):
         self.path = path
+        self.prev_path = path
+        self.planned_path = planned_path
+        self.prev_planned_path = planned_path
+
+    def update_path(self, path: np.array):
+        self.prev_path = self.path
+        self.path = path
+
+    def update_planned_path(self, path_list: np.array):
+        self.prev_planned_path = self.planned_path
+        self.planned_path = path_list
 
 
 def snap_to_lattice(start_pos, goal_pos, initial_heading, turning_radius, num_headings,
@@ -37,15 +52,15 @@ def snap_to_lattice(start_pos, goal_pos, initial_heading, turning_radius, num_he
         [np.cos(0.05), -np.sin(0.05)],
         [np.sin(0.05), np.cos(0.05)]
     ])
-    print(goal_pos, start_pos)
-    print(initial_heading)
-    print(R)
+    # print(goal_pos, start_pos)
+    # print(initial_heading)
+    # print(R)
     # determine how far from lattice the goal position is
     difference = R @ np.array([[goal_pos[0] - start_pos[0]], [goal_pos[1] - start_pos[1]]])
     diff_y = difference[1][0] % turning_radius
     diff_x = difference[0][0] % turning_radius
-    print("HI", diff_x, diff_y)
-    print(difference)
+    # print("HI", diff_x, diff_y)
+    # print(difference)
 
     # determine difference in heading
     abs_init_heading = heading_to_world_frame(start_pos[2], initial_heading, num_headings) \
@@ -116,7 +131,7 @@ def plot_path(ax1, costmap_obj, smoothed_edge_path, initial_heading, turning_rad
     #fig1, ax1 = plt.subplots(1, 2, figsize=(5, 10))
     if plot:
         ax1[0].imshow(costmap_obj.cost_map, origin='lower')
-    PATH = smoothed_edge_path[::-1]
+    PATH = smoothed_edge_path[::-1]  # reverses order of elements
     path = np.zeros((3, 1))  # what is this used for?
 
     for i in range(np.shape(PATH)[0] - 1):
@@ -217,7 +232,7 @@ def state_lattice_planner(file_name: str = "test", g_weight: float = 0.5, h_weig
                    primitives=prim, ship=ship, first_initial_heading=initial_heading)
 
     t0 = time.clock()
-    worked, smoothed_edge_path, nodes_visited, x1, y1, x2, y2, orig_path = \
+    worked, smoothed_edge_path, nodes_visited, x1, y1, x2, y2, orig_path, path_cost = \
         a_star.search(start_pos, goal_pos, swath_dict, smooth_path)
 
     init_plan_time = time.clock() - t0
@@ -254,7 +269,7 @@ def state_lattice_planner(file_name: str = "test", g_weight: float = 0.5, h_weig
     # FIXME: why regenerate again, can't we just do this in the smoothing step????
     if worked:
         path_list = plot_path(ax1, costmap_obj, smoothed_edge_path, initial_heading, turning_radius,
-                              smooth_path, prim, x1, x2, y1, y2, nodes_visited, plot=True)
+                              smooth_path, prim, x1, x2, y1, y2, nodes_visited, plot=False)
     else:
         path = 0
 
@@ -289,7 +304,7 @@ def state_lattice_planner(file_name: str = "test", g_weight: float = 0.5, h_weig
 
     path_list = path_list.T
 
-    path = Path(path_list)
+    path = Path(path_list, smoothed_edge_path)
 
     # From pure pursuit
     state = State(x=start_pos[0], y=start_pos[1], yaw=0.0, v=0.0)
@@ -368,28 +383,41 @@ def state_lattice_planner(file_name: str = "test", g_weight: float = 0.5, h_weig
 
             # Replan
             t0 = time.clock()
-            worked, smoothed_edge_path, nodes_visited, x1, y1, x2, y2, orig_path = \
+            worked, smoothed_edge_path, nodes_visited, x1, y1, x2, y2, orig_path, path_cost = \
                 a_star.search(ship_pos, snapped_goal, swath_dict, smooth_path)
             t1 = time.clock() - t0
             print("PLAN TIME", t1)
-            print("NODES VISITED", len(nodes_visited))
 
             if worked:
+                print("NODES VISITED", len(nodes_visited))
+                print("CURRENT COST", path_cost)
                 print("Replanned Path", smoothed_edge_path)
-                # update obstacles and generate new path from output of A*
-                path_list = plot_path(ax1, costmap_obj, smoothed_edge_path, ship.initial_heading, turning_radius,
-                                      smooth_path, prim, x1, x2, y1, y2, nodes_visited, plot=False)
-                # plt.show()
+                prev_cost, _ = costmap_obj.compute_path_cost(path=path.prev_planned_path.copy(), ship=ship,
+                                                             num_headings=prim.num_headings,
+                                                             reverse_path=True)
+                current_cost, _ = costmap_obj.compute_path_cost(path=smoothed_edge_path.copy(), ship=ship,
+                                                             num_headings=prim.num_headings,
+                                                             reverse_path=True)
+                print("PREV COST", prev_cost)
+                print("CURRENT COST", current_cost)
+                if path_cost < prev_cost:
+                    print("NEW PATH BETTER THAN OLD PATH")
+                    path.update_planned_path(smoothed_edge_path)
+                    # generate new path from output of A*
+                    path_list = plot_path(ax1, costmap_obj, smoothed_edge_path, ship.initial_heading, turning_radius,
+                                              smooth_path, prim, x1, x2, y1, y2, nodes_visited, plot=False)
 
-                # update to new path
-                path_list = path_list.T
-                path.path = path_list
-                line.set_xdata(path.path.T[0])
-                line.set_ydata(path.path.T[1])
-                ship.set_path_pos(0)
-
-                # update pure pursuit objects with new path
-                target_course.update(path.path.T[0], path.path.T[1])
+                    # update to new path
+                    path_list = path_list.T
+                    #path.path = path_list
+                    path.update_path(path_list)
+                    line.set_xdata(path.path.T[0])
+                    line.set_ydata(path.path.T[1])
+                    ship.set_path_pos(0)
+                    # update pure pursuit objects with new path
+                    target_course.update(path.path.T[0], path.path.T[1])
+                else:
+                    print("OLD PATH IS BETTER")
                 state.update(ship.body.position.x, ship.body.position.y, ship.body.angle)
                 # plt.show(block=False)
 
@@ -481,7 +509,7 @@ def main():
     # --- costmap --- #
     n = 300  # channel height
     m = 40  # channel width
-    load_costmap_file = "sample_costmaps/test3.pk" # "sample_costmaps/gold_test.pk"  # "sample_costmaps/random_obstacles_1.pk"
+    load_costmap_file = "" # "sample_costmaps/gold_test.pk"  # "sample_costmaps/random_obstacles_1.pk"
 
     # --- ship --- #
     start_pos = (20, 10, 0)  # (x, y, theta)
@@ -492,7 +520,7 @@ def main():
     padding = 0  # padding around ship vertices to increase footprint when computing path costs
 
     # --- primitives --- #
-    num_headings = 16
+    num_headings = 8
 
     # --- ice --- #
     num_obs = 100  # number of random ice obstacles
@@ -515,7 +543,7 @@ def main():
 
     # -- misc --- #
     smooth_path = False  # if True run smoothing algorithm
-    replan = False  # if True rerun A* search at each time step
+    replan = True  # if True rerun A* search at each time step
     save_animation = False  # if True save animation and don't show it
     save_costmap = False
     file_name = "gifs/replan_test.gif"
