@@ -17,7 +17,7 @@ class Plot:
     Aggregates all plotting objects into a single class
     """
     def __init__(self, costmap: CostMap, prim: Primitives, ship: Ship, nodes_expanded: List,
-                 path: List, path_nodes: Tuple[List, List], smoothing_nodes: Tuple[List, List],
+                 path: List, path_nodes: Tuple[List, List], smoothing_nodes: Tuple[List, List], horizon: int,
                  map_figsize=(5, 10), sim_figsize=(10, 10)):
         # init two fig and ax objects
         # the first is for plotting the updated costmap, node plot, and path
@@ -82,6 +82,14 @@ class Plot:
             patches.Polygon(vs, True, color='green')
         )
 
+        # display a lightly shaded region for the horizon
+        if type(horizon) is int:
+            self.horizon_area = self.sim_ax.fill_between(
+                x=np.arange(0, costmap.m), y1=path[-1][1], y2=path[0][1], color='C1', alpha=0.3, zorder=0
+            )
+
+        self.prev_ship_pos = ship.body.position
+
     def update_map(self, cost_map: np.ndarray, obstacles: Dict) -> None:
         # update the costmap plot
         self.costmap_image.set_data(cost_map)
@@ -110,13 +118,19 @@ class Plot:
         for line, nodes in zip(self.nodes_line, [path_nodes, smoothing_nodes]):
             line.set_data(nodes[0], nodes[1])
 
-    def animate_ship(self, ship) -> None:
+    def animate_ship(self, ship, horizon) -> None:
         heading = ship.body.angle
         R = np.asarray([
             [math.cos(heading), -math.sin(heading)], [math.sin(heading), math.cos(heading)]
         ])
         vs = np.asarray(ship.shape.get_vertices()) @ R + np.asarray(ship.body.position)
         self.ship_patch.set_xy(vs)
+
+        # shade in the area of the map that is part of the horizon
+        if type(horizon) is int:
+            offset = np.array([0, ship.body.position.y - self.prev_ship_pos[1]])
+            self.horizon_area.get_paths()[0].vertices += offset
+            self.prev_ship_pos = ship.body.position  # update prev ship position
 
     def animate_obstacles(self, polygons: List[Poly]) -> None:
         for poly, patch in zip(polygons, self.obs_patches[1]):
@@ -129,7 +143,7 @@ class Plot:
 
     def get_sim_artists(self) -> Iterable:
         return (
-            self.path_line[1], self.ship_patch, *self.obs_patches[1]
+            self.path_line[1], self.ship_patch, *self.obs_patches[1], self.horizon_area
         )
 
     @staticmethod

@@ -1,9 +1,9 @@
 import math
-from multiprocessing import Process, Pipe, Event, Queue
-from queue import Empty
 import pickle
 import random
 import time
+from multiprocessing import Process, Pipe, Event, Queue
+from queue import Empty
 
 import numpy as np
 import pymunk
@@ -20,7 +20,7 @@ from plot import Plot
 from primitives import Primitives
 from pure_pursuit import TargetCourse, State
 from ship import Ship
-from utils import heading_to_world_frame, create_polygon, Path
+from utils import create_polygon, Path
 
 random.seed(1)  # make the simulation the same each time, easier to debug
 at_goal = False
@@ -29,13 +29,12 @@ at_goal = False
 def state_lattice_planner(file_name: str = "test", g_weight: float = 0.5, h_weight: float = 0.5, costmap_file: str = "",
                           start_pos: tuple = (20, 10, 0), goal_pos: tuple = (20, 280, 0),
                           initial_heading: float = math.pi / 2, padding: int = 0,
-
                           turning_radius: int = 8, vel: int = 10, num_headings: int = 8,
                           num_obs: int = 130, min_r: int = 1, max_r: int = 8, upper_offset: int = 20,
                           lower_offset: int = 20, allow_overlap: bool = False,
                           obstacle_density: int = 6, obstacle_penalty: float = 3,
                           Kp: float = 3, Ki: float = 0.08, Kd: float = 0.5,
-                          save_animation: bool = False, smooth_path: bool = False, replan: bool = False):
+                          save_animation: bool = False, smooth_path: bool = False, replan: bool = False, horizon: int = np.inf):
     # PARAM SETUP
     # --- costmap --- #
     n = 300  # channel height
@@ -75,9 +74,12 @@ def state_lattice_planner(file_name: str = "test", g_weight: float = 0.5, h_weig
     a_star = AStar(g_weight, h_weight, cmap=costmap_obj,
                    primitives=prim, ship=ship, first_initial_heading=initial_heading)
 
+    # compute current goal
+    curr_goal = (goal_pos[0], min(goal_pos[1], (start_pos[1] + horizon)), goal_pos[2])
+
     t0 = time.clock()
     worked, smoothed_edge_path, nodes_visited, x1, y1, x2, y2, orig_path = \
-        a_star.search(start_pos, goal_pos, swath_dict, smooth_path)
+        a_star.search(start_pos, curr_goal, swath_dict, smooth_path)
 
     t1 = time.clock() - t0
     print("Time elapsed: ", t1)
@@ -109,7 +111,7 @@ def state_lattice_planner(file_name: str = "test", g_weight: float = 0.5, h_weig
     if worked:
         plot_obj = Plot(
             costmap_obj, prim, ship, nodes_visited, smoothed_edge_path,
-            path_nodes=(x1, y1), smoothing_nodes=(x2, y2)
+            path_nodes=(x1, y1), smoothing_nodes=(x2, y2), horizon=horizon
         )
         path = Path(plot_obj.full_path)
     else:
@@ -249,7 +251,7 @@ def state_lattice_planner(file_name: str = "test", g_weight: float = 0.5, h_weig
                 pid.setpoint = angle
 
         # at each step animate ship and obstacle patches
-        plot_obj.animate_ship(ship)
+        plot_obj.animate_ship(ship, horizon)
         plot_obj.animate_obstacles(polygons)
 
         return plot_obj.get_sim_artists()
@@ -263,7 +265,7 @@ def state_lattice_planner(file_name: str = "test", g_weight: float = 0.5, h_weig
     print('\nStart process...')
     gen_path_process = Process(
         target=gen_path, args=(lifo_queue, conn_send, shutdown_event, ship, prim,
-                               costmap_obj, swath_dict, a_star, goal_pos)
+                               costmap_obj, swath_dict, a_star, goal_pos, horizon)
     )
     gen_path_process.start()
 
@@ -322,6 +324,7 @@ def main():
     # --- A* --- #
     g_weight = 0.3  # cost = g_weight * g_score + h_weight * h_score
     h_weight = 0.7
+    horizon = 50  # in metres
 
     # --- pid --- #
     Kp = 3
@@ -340,7 +343,7 @@ def main():
                           num_obs=num_obs, min_r=min_r, max_r=max_r, upper_offset=upper_offset,
                           lower_offset=lower_offset, allow_overlap=allow_overlap, obstacle_density=obstacle_density,
                           obstacle_penalty=obstacle_penalty, Kp=Kp, Ki=Ki, Kd=Kd,
-                          save_animation=save_animation, smooth_path=smooth_path, replan=replan)
+                          save_animation=save_animation, smooth_path=smooth_path, replan=replan, horizon=horizon)
 
 
 if __name__ == "__main__":

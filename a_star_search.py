@@ -299,9 +299,9 @@ class AStar:
         return ((x1 - x2) ** 2 + (y1 - y2) ** 2) ** 0.5
 
 
-# calling AStar in multiprocessing context
+# method to call AStar in multiprocessing context
 def gen_path(queue_state: Queue, pipe_path: connection.Pipe, shutdown_event: Event, ship: Ship, prim: Primitives,
-             costmap: CostMap, swath_dict: swath.Swath, a_star: AStar, goal_pos) -> None:
+             costmap: CostMap, swath_dict: swath.Swath, a_star: AStar, goal_pos: Tuple, horizon: int = np.inf) -> None:
     while not shutdown_event.is_set():
         try:
             state_data = queue_state.get(block=True, timeout=1)  # blocking call
@@ -313,8 +313,9 @@ def gen_path(queue_state: Queue, pipe_path: connection.Pipe, shutdown_event: Eve
 
             # get new ship pos and computed snapped goal
             ship_pos = state_data['ship_pos']
+            curr_goal = (goal_pos[0], min(goal_pos[1], (ship_pos[1] + horizon)), goal_pos[2])
             snapped_goal = snap_to_lattice(
-                ship_pos, goal_pos, ship.initial_heading, ship.turning_radius,
+                ship_pos, curr_goal, ship.initial_heading, ship.turning_radius,
                 prim.num_headings, abs_init_heading=ship.initial_heading
             )
 
