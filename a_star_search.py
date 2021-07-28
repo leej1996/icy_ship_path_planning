@@ -1,18 +1,18 @@
 import math
-import time
 import queue
-from typing import Tuple
+import time
 from multiprocessing import connection, Event, Queue
+from typing import Tuple
 
 import dubins
 import numpy as np
+from skimage import transform
 
 import swath
 from cost_map import CostMap
 from path_smoothing import path_smoothing
 from primitives import Primitives
 from priority_queue import CustomPriorityQueue
-from skimage import transform
 from ship import Ship
 from swath import Swath
 from utils import heading_to_world_frame, snap_to_lattice
@@ -21,7 +21,7 @@ from utils import heading_to_world_frame, snap_to_lattice
 class AStar:
 
     def __init__(self, g_weight: float, h_weight: float, cmap: CostMap,
-                 primitives: Primitives, ship: Ship, first_initial_heading: float):
+                 primitives: Primitives, ship: Ship, first_initial_heading: float, inf_stream: bool = True):
         self.g_weight = g_weight
         self.h_weight = h_weight
         self.cmap = cmap
@@ -301,7 +301,8 @@ class AStar:
 
 # method to call AStar in multiprocessing context
 def gen_path(queue_state: Queue, pipe_path: connection.Pipe, shutdown_event: Event, ship: Ship, prim: Primitives,
-             costmap: CostMap, swath_dict: swath.Swath, a_star: AStar, goal_pos: Tuple, horizon: int = np.inf) -> None:
+             costmap: CostMap, swath_dict: swath.Swath, a_star: AStar, goal_pos: Tuple,
+             horizon: int = np.inf, smooth_path: bool = False, inf_stream: bool = False) -> None:
     while not shutdown_event.is_set():
         try:
             state_data = queue_state.get(block=True, timeout=1)  # blocking call
@@ -329,7 +330,7 @@ def gen_path(queue_state: Queue, pipe_path: connection.Pipe, shutdown_event: Eve
 
             # compute path to goal
             _, new_path, nodes_visited, x1, y1, x2, y2, _ = \
-                a_star.search(ship_pos, snapped_goal, new_swath_dict, smooth_path=False)
+                a_star.search(ship_pos, snapped_goal, new_swath_dict, smooth_path=smooth_path)
 
             if new_path != 'Fail' and len(new_path) > 1:
                 # send new path and node information to pipe
@@ -347,8 +348,8 @@ def gen_path(queue_state: Queue, pipe_path: connection.Pipe, shutdown_event: Eve
             # nothing in queue so try again
             time.sleep(0.001)
 
-        except ValueError:
-            print("Queue closed")
+        except ValueError as err:
+            print("Queue closed: {}".format(err))
             break
 
     pipe_path.close()

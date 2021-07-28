@@ -26,19 +26,19 @@ random.seed(1)  # make the simulation the same each time, easier to debug
 at_goal = False
 
 
-def state_lattice_planner(file_name: str = "test", g_weight: float = 0.5, h_weight: float = 0.5, costmap_file: str = "",
+def state_lattice_planner(n: int, m: int, file_name: str = "test", g_weight: float = 0.5, h_weight: float = 0.5,
+                          costmap_file: str = "",
                           start_pos: tuple = (20, 10, 0), goal_pos: tuple = (20, 280, 0),
                           initial_heading: float = math.pi / 2, padding: int = 0,
                           turning_radius: int = 8, vel: int = 10, num_headings: int = 8,
                           num_obs: int = 130, min_r: int = 1, max_r: int = 8, upper_offset: int = 20,
                           lower_offset: int = 20, allow_overlap: bool = False,
                           obstacle_density: int = 6, obstacle_penalty: float = 3,
-                          Kp: float = 3, Ki: float = 0.08, Kd: float = 0.5,
-                          save_animation: bool = False, smooth_path: bool = False, replan: bool = False, horizon: int = np.inf):
+                          Kp: float = 3, Ki: float = 0.08, Kd: float = 0.5, inf_stream: bool = False,
+                          save_animation: bool = False, smooth_path: bool = False, replan: bool = False,
+                          horizon: int = np.inf):
     # PARAM SETUP
     # --- costmap --- #
-    n = 300  # channel height
-    m = 40  # channel width
     load_costmap_file = costmap_file
     ship_vertices = np.array([[-1, -4],
                               [1, -4],
@@ -55,10 +55,10 @@ def state_lattice_planner(file_name: str = "test", g_weight: float = 0.5, h_weig
                 costmap_obj.update2(obstacle_penalty)
     else:
         # initialize costmap
-        costmap_obj = CostMap(n, m, obstacle_penalty)
+        costmap_obj = CostMap(n, m, obstacle_penalty, inf_stream)
 
         # generate random obstacles
-        costmap_obj.generate_obstacles(start_pos, goal_pos, num_obs, min_r, max_r,
+        costmap_obj.generate_obstacles(start_pos[1], goal_pos[1], num_obs, min_r, max_r,
                                        upper_offset, lower_offset, allow_overlap)
     # initialize ship object
     ship = Ship(ship_vertices, start_pos, initial_heading, turning_radius, padding)
@@ -86,32 +86,10 @@ def state_lattice_planner(file_name: str = "test", g_weight: float = 0.5, h_weig
     print("Hz", 1 / t1)
     print("NODES VISITED", len(nodes_visited))
 
-    recomputed_original_cost, og_length = costmap_obj.compute_path_cost(path=orig_path, ship=ship,
-                                                                        num_headings=prim.num_headings,
-                                                                        reverse_path=True)
-    smoothed_cost, smooth_length = costmap_obj.compute_path_cost(path=smoothed_edge_path.copy(), ship=ship,
-                                                                 num_headings=prim.num_headings, reverse_path=True)
-    straight_path_cost, straight_length = costmap_obj.compute_path_cost(path=[start_pos, goal_pos],
-                                                                        num_headings=prim.num_headings, ship=ship)
-    print("\nPath cost:"
-          "\n\toriginal path:  {:.4f}"
-          "\n\twith smoothing: {:.4f}"
-          "\n\tstraight path:  {:.4f}\n".format(recomputed_original_cost, smoothed_cost, straight_path_cost))
-    print("\nPath length:"
-          "\n\toriginal path:  {:.4f}"
-          "\n\twith smoothing: {:.4f}"
-          "\n\tstraight path:  {:.4f}\n".format(og_length, smooth_length, straight_length))
-    # try:
-    #     assert smoothed_cost <= recomputed_original_cost <= straight_path_cost, \
-    #         "smoothed cost should be less than original cost and original cost should be less than straight cost"
-    # except AssertionError as error:
-    #     print(error)
-    #     costmap_obj.save_to_disk()
-
     if worked:
         plot_obj = Plot(
             costmap_obj, prim, ship, nodes_visited, smoothed_edge_path,
-            path_nodes=(x1, y1), smoothing_nodes=(x2, y2), horizon=horizon
+            path_nodes=(x1, y1), smoothing_nodes=(x2, y2), horizon=horizon, inf_stream=inf_stream
         )
         path = Path(plot_obj.full_path)
     else:
@@ -265,7 +243,7 @@ def state_lattice_planner(file_name: str = "test", g_weight: float = 0.5, h_weig
     print('\nStart process...')
     gen_path_process = Process(
         target=gen_path, args=(lifo_queue, conn_send, shutdown_event, ship, prim,
-                               costmap_obj, swath_dict, a_star, goal_pos, horizon)
+                               costmap_obj, swath_dict, a_star, goal_pos, horizon, smooth_path)
     )
     gen_path_process.start()
 
@@ -275,7 +253,7 @@ def state_lattice_planner(file_name: str = "test", g_weight: float = 0.5, h_weig
                                    frames=gen,
                                    fargs=(lifo_queue, conn_recv,),
                                    interval=20,
-                                   blit=True,
+                                   blit=False,
                                    repeat=False,
                                    )
 
@@ -296,20 +274,20 @@ def state_lattice_planner(file_name: str = "test", g_weight: float = 0.5, h_weig
 def main():
     # PARAM SETUP
     # --- costmap --- #
-    n = 300  # channel height
+    n = 100  # channel height
     m = 40  # channel width
     load_costmap_file = ""  # "sample_costmaps/random_obstacles_1.pk"
 
     # --- ship --- #
-    start_pos = (20, 10, 0)  # (x, y, theta)
-    goal_pos = (20, 282, 0)
+    start_pos = (20, 5, 0)  # (x, y, theta)
+    goal_pos = (20, 140, 0)
     initial_heading = math.pi / 2
     turning_radius = 8
     vel = 10  # constant linear velocity of ship
     padding = 0  # padding around ship vertices to increase footprint when computing path costs
 
     # --- primitives --- #
-    num_headings = 8
+    num_headings = 16
 
     # --- ice --- #
     num_obs = 130  # number of random ice obstacles
@@ -325,25 +303,32 @@ def main():
     g_weight = 0.3  # cost = g_weight * g_score + h_weight * h_score
     h_weight = 0.7
     horizon = 50  # in metres
+    smooth_path = True  # if True run smoothing algorithm as a post processing step
+    replan = True  # if True rerun A* search at each time step
 
     # --- pid --- #
     Kp = 3
     Ki = 0.08
     Kd = 0.5
 
-    # -- misc --- #
-    smooth_path = False  # if True run smoothing algorithm
-    replan = True  # if True rerun A* search at each time step
+    # -- animation -- #
+    inf_stream = True  # if True then simulation will run forever
     save_animation = False  # if True save animation and don't show it
     file_name = "test-1.gif"
 
-    state_lattice_planner(file_name=file_name, g_weight=g_weight, h_weight=h_weight, costmap_file=load_costmap_file,
+    # automatic changes to params
+    if inf_stream:
+        upper_offset = -40
+
+    state_lattice_planner(n, m, file_name=file_name, g_weight=g_weight, h_weight=h_weight,
+                          costmap_file=load_costmap_file,
                           start_pos=start_pos, goal_pos=goal_pos, initial_heading=initial_heading, padding=padding,
                           turning_radius=turning_radius, vel=vel, num_headings=num_headings,
                           num_obs=num_obs, min_r=min_r, max_r=max_r, upper_offset=upper_offset,
                           lower_offset=lower_offset, allow_overlap=allow_overlap, obstacle_density=obstacle_density,
                           obstacle_penalty=obstacle_penalty, Kp=Kp, Ki=Ki, Kd=Kd,
-                          save_animation=save_animation, smooth_path=smooth_path, replan=replan, horizon=horizon)
+                          save_animation=save_animation, smooth_path=smooth_path, replan=replan, horizon=horizon,
+                          inf_stream=inf_stream)
 
 
 if __name__ == "__main__":
