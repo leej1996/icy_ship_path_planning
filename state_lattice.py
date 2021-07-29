@@ -38,7 +38,6 @@ class Path:
         self.path = path
 
     def update_planned_path(self, path_list: np.array):
-        self.prev_planned_path = self.planned_path
         self.planned_path = path_list
 
 
@@ -392,7 +391,7 @@ def state_lattice_planner(file_name: str = "test", g_weight: float = 0.5, h_weig
                 print("NODES VISITED", len(nodes_visited))
                 print("CURRENT COST", path_cost)
                 print("Replanned Path", smoothed_edge_path)
-                prev_cost, _ = costmap_obj.compute_path_cost(path=path.prev_planned_path.copy(), ship=ship,
+                prev_cost, _ = costmap_obj.compute_path_cost(path=path.planned_path.copy(), ship=ship,
                                                              num_headings=prim.num_headings,
                                                              reverse_path=True)
                 current_cost, _ = costmap_obj.compute_path_cost(path=smoothed_edge_path.copy(), ship=ship,
