@@ -12,12 +12,6 @@ class Primitives:
         self.scale = scale
         self.num_headings = num_headings
 
-        self.rotation_matrix = lambda theta: np.asarray([
-            [np.cos(theta), -np.sin(theta), 0],
-            [np.sin(theta), np.cos(theta), 0],
-            [0, 0, 1]
-        ])
-
         edge_set_dict = self.get_primitives(num_headings)
         # scale the edge sets and turn them into npy arrays
         self.edge_set_dict = {}
@@ -59,7 +53,7 @@ class Primitives:
             plt.show()
 
     def rotate(self, theta: float, orig: bool = False):
-        R = self.rotation_matrix(theta)
+        R = rotation_matrix(theta)
 
         edge_set = self.orig_edge_set if orig else self.edge_set_dict
         self.edge_set_dict = {k: v @ R.T for k, v in edge_set.items()}
@@ -257,6 +251,13 @@ class Primitives:
             print("Num headings '{}' not allowed!".format(num_headings))
             exit(1)
 
+def rotation_matrix(theta) -> np.array:
+    rot_matrix = np.asarray([
+        [np.cos(theta), -np.sin(theta), 0],
+        [np.sin(theta), np.cos(theta), 0],
+        [0, 0, 1]
+    ])
+    return rot_matrix
 
 if __name__ == '__main__':
     # for testing purposes

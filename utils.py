@@ -141,5 +141,18 @@ def snap_to_lattice(start_pos, goal_pos, initial_heading, turning_radius, num_he
 
 
 class Path:
-    def __init__(self, path: np.array):
+    '''
+    There are two path objects, the output from a star that the cost can be calculated from (planned_path),
+    and the path with many more nodes that the ship actually follows (path).
+    '''
+    def __init__(self, path: np.array, planned_path: np.array):
         self.path = path
+        self.prev_path = path
+        self.planned_path = planned_path
+
+    def update_path(self, path: np.array):
+        self.prev_path = self.path
+        self.path = path
+
+    def update_planned_path(self, path_list: np.array):
+        self.planned_path = path_list

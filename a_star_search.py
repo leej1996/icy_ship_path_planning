@@ -97,7 +97,7 @@ class AStar:
                         x1.append(vi[0])
                         y1.append(vi[1])
 
-                return True, smooth_path, closedSet, x1, y1, x2, y2, orig_path, g_score[goal]
+                return True, smooth_path, closedSet, x1, y1, x2, y2, orig_path
 
             openSet.pop(node)
             closedSet.append(node)
