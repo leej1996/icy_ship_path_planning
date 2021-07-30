@@ -17,10 +17,12 @@ from utils import heading_to_world_frame
 
 
 class CostMap:
-    def __init__(self, n: int, m: int, obstacle_penalty: float):
+    def __init__(self, n: int, m: int, obstacle_penalty: float, inf_stream: bool = False):
         self.n = n
         self.m = m
-        self.cost_map = np.zeros((n, m))
+        # if inf stream is true then add some buffer at the top of the channel for new obstacles to be generated
+        self.buffer = 40 if inf_stream else 0  # TODO
+        self.cost_map = np.zeros((self.n + self.buffer, self.m))
         self.obstacles = []
         self.grouped_obstacles = []
         self.obstacle_penalty = obstacle_penalty
@@ -32,20 +34,20 @@ class CostMap:
         for col in range(self.m):
             self.cost_map[:, col] = max(0, (np.abs(col - self.m / 2) - cutoff_factor * self.m)) ** exp_factor * self.obstacle_penalty
 
-    def generate_obstacles(self, start_pos, goal_pos, num_obs, min_r, max_r,
+    def generate_obstacles(self, start_pos_y, goal_pos_y, num_obs, min_r, max_r,
                            upper_offset, lower_offset, allow_overlap=True, debug=False) -> List[dict]:
-        channel_width = self.cost_map.shape[1]
         iteration_cap = 0
-        while len(self.obstacles) < num_obs:
+        obstacles = []
+        while len(obstacles) < num_obs:
             near_obs = False
-            x = random.randint(max_r, channel_width - max_r - 1)
-            y = random.randint(start_pos[1] + lower_offset + max_r, int(goal_pos[1] - upper_offset - max_r))
+            x = random.randint(max_r, self.m - max_r - 1)
+            y = random.randint(start_pos_y + lower_offset + max_r, int(goal_pos_y - upper_offset - max_r))
             r = random.randint(min_r, max_r)
 
             if not allow_overlap:
                 # check if obstacles overlap
                 # NOTE: for this step we approximate the obstacles as circles
-                for obs in self.obstacles:
+                for obs in obstacles:
                     if ((x - obs['centre'][0]) ** 2 + (y - obs['centre'][1]) ** 2) ** 0.5 < obs['radius'] + r:
                         near_obs = True
                         break
@@ -60,7 +62,7 @@ class CostMap:
                 # compute the cost and update the costmap
                 if self.populate_costmap(centre_coords=(x, y), radius=r, polygon=polygon):
                     # add the polygon to obstacles list if it is feasible
-                    self.obstacles.append({
+                    obstacles.append({
                         'vertices': polygon,
                         'centre': (x, y),
                         'radius': r
@@ -85,12 +87,14 @@ class CostMap:
             if iteration_cap > 300:
                 break
 
+        self.obstacles.extend(obstacles)  # add new obstacles to class level list
+
         if allow_overlap:
             self.group_polygons()
         else:
             self.grouped_obstacles = self.obstacles
 
-        return self.obstacles
+        return obstacles  # return the newly added obstacles
 
     @staticmethod
     def generate_polygon(diameter, origin=(0, 0), num_vertices_range=(5, 10)) -> np.ndarray:
@@ -199,7 +203,7 @@ class CostMap:
         return True
 
     def group_polygons(self) -> None:
-        dummy_costmap = np.zeros((self.n, self.m), dtype=np.uint8)
+        dummy_costmap = np.zeros_like(self.cost_map, dtype=np.uint8)
 
         for obs in self.obstacles:
             row_coords = obs["vertices"][:, 1]
@@ -279,7 +283,15 @@ class CostMap:
                 self.obstacles.append({
                     'vertices': poly_vertices,
                     'centre': list(obs.body.position),
-                    'radius': r
+                    'radius': r,
+                    'on_map': True
+                })
+            else:  # still add the obstacle to the list so ordering stays the same
+                self.obstacles.append({
+                    'vertices': poly_vertices,
+                    'centre': list(obs.body.position),
+                    'radius': r,
+                    'on_map': False
                 })
 
     def update2(self, obstacle_penalty: float):
@@ -323,7 +335,7 @@ def main():
     lower_offset = 1
 
     # generate random obstacles
-    costmap.generate_obstacles(start_pos, goal_pos, num_obstacles,
+    costmap.generate_obstacles(start_pos[1], goal_pos[1], num_obstacles,
                                min_radius, max_radius, upper_offset, lower_offset, debug=True)
 
 

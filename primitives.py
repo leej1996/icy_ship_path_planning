@@ -119,7 +119,7 @@ class Primitives:
                     (5, 0, 7)
                 ]
             }
-        else:
+        elif num_headings == 16:
             return {
                 (0, 0, 0): [
                     (1, 0, 0),
@@ -184,7 +184,8 @@ class Primitives:
                     (2, 3, 0),
                     (3, 0, 3),
                     (3, 0, 13),
-                    (3, -2, 1)],
+                    (3, -2, 1)
+                ],
                 (0, 0, 2): [
                     (-1, 3, 4),
                     (-1, 4, 2),
@@ -220,7 +221,8 @@ class Primitives:
                     (3, 1, 2),
                     (3, 1, 3),
                     (4, 0, 3),
-                    (4, -1, 2)],
+                    (4, -1, 2)
+                ],
                 (0, 0, 3): [
                     (-2, 3, 3),
                     (-1, 2, 5),
@@ -251,6 +253,9 @@ class Primitives:
                     (4, -1, 0)
                 ]
             }
+        else:
+            print("Num headings '{}' not allowed!".format(num_headings))
+            exit(1)
 
 
 if __name__ == '__main__':

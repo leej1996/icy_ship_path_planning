@@ -1,24 +1,27 @@
 import math
+import queue
 import time
+from multiprocessing import connection, Event, Queue
 from typing import Tuple
 
 import dubins
 import numpy as np
+from skimage import transform
 
+import swath
 from cost_map import CostMap
 from path_smoothing import path_smoothing
 from primitives import Primitives
 from priority_queue import CustomPriorityQueue
-from skimage import transform
 from ship import Ship
 from swath import Swath
-from utils import heading_to_world_frame
+from utils import heading_to_world_frame, snap_to_lattice
 
 
 class AStar:
 
     def __init__(self, g_weight: float, h_weight: float, cmap: CostMap,
-                 primitives: Primitives, ship: Ship, first_initial_heading: float):
+                 primitives: Primitives, ship: Ship, first_initial_heading: float, inf_stream: bool = True):
         self.g_weight = g_weight
         self.h_weight = h_weight
         self.cmap = cmap
@@ -28,7 +31,6 @@ class AStar:
         self.first_initial_heading = first_initial_heading
 
     def search(self, start: tuple, goal: tuple, swath_dict: Swath, smooth_path: bool = True):
-        free_path_interval = 1
         generation = 0  # number of nodes expanded
         # print("start", start)
         openSet = {start: generation}  # point_set of nodes considered for expansion
@@ -295,3 +297,60 @@ class AStar:
         x2 = b[0]
         y2 = b[1]
         return ((x1 - x2) ** 2 + (y1 - y2) ** 2) ** 0.5
+
+
+# method to call AStar in multiprocessing context
+def gen_path(queue_state: Queue, pipe_path: connection.Pipe, shutdown_event: Event, ship: Ship, prim: Primitives,
+             costmap: CostMap, swath_dict: swath.Swath, a_star: AStar, goal_pos: Tuple,
+             horizon: int = np.inf, smooth_path: bool = False, inf_stream: bool = False) -> None:
+    while not shutdown_event.is_set():
+        try:
+            state_data = queue_state.get(block=True, timeout=1)  # blocking call
+            print('\nNEXT STEP')
+
+            # update ship initial heading
+            ship.body.angle = state_data['ship_body_angle']
+            ship.initial_heading = -ship.body.angle + a_star.first_initial_heading
+
+            # get new ship pos and computed snapped goal
+            ship_pos = state_data['ship_pos']
+            curr_goal = (goal_pos[0], min(goal_pos[1], (ship_pos[1] + horizon)), goal_pos[2])
+            snapped_goal = snap_to_lattice(
+                ship_pos, curr_goal, ship.initial_heading, ship.turning_radius,
+                prim.num_headings, abs_init_heading=ship.initial_heading
+            )
+
+            # update costmap
+            costmap.cost_map = state_data['costmap']
+            costmap.obstacles = state_data['obstacles']
+
+            # update primitives and update swath
+            prim.rotate(-ship.body.angle, orig=True)
+            new_swath_dict = swath.update_swath(theta=-ship.body.angle, swath_dict=swath_dict)
+
+            # compute path to goal
+            _, new_path, nodes_visited, x1, y1, x2, y2, _ = \
+                a_star.search(ship_pos, snapped_goal, new_swath_dict, smooth_path=smooth_path)
+
+            if new_path != 'Fail' and len(new_path) > 1:
+                # send new path and node information to pipe
+                print('Sending...')
+                pipe_path.send({  # blocking call
+                    'path': new_path,
+                    'path_nodes': (x1, y1),
+                    'smoothing_nodes': (x2, y2),
+                    'nodes_expanded': nodes_visited,
+                    'initial_heading': ship.initial_heading  # for plotting purposes
+                })
+                print('Sent path!')
+
+        except queue.Empty:
+            # nothing in queue so try again
+            time.sleep(0.001)
+
+        except ValueError as err:
+            print("Queue closed: {}".format(err))
+            break
+
+    pipe_path.close()
+

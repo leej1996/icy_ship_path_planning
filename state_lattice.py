@@ -1,24 +1,28 @@
 import math
 import pickle
+import random
 import time
+from multiprocessing import Process, Pipe, Event, Queue
+from queue import Empty
 
 import numpy as np
 import pymunk
 import pymunk.constraints
 from matplotlib import animation
-from matplotlib import patches
 from matplotlib import pyplot as plt
 from pymunk.vec2d import Vec2d
 from simple_pid import PID
 
 import swath
-from a_star_search import AStar
+from a_star_search import AStar, gen_path
 from cost_map import CostMap
+from plot import Plot
 from primitives import Primitives
 from pure_pursuit import TargetCourse, State
 from ship import Ship
-from utils import heading_to_world_frame, get_points_on_dubins_path
+from utils import create_polygon, Path
 
+random.seed(1)  # make the simulation the same each time, easier to debug
 at_goal = False
 
 
@@ -178,6 +182,10 @@ def create_node_plot(n, m, nodes_visited):
 
 
 def state_lattice_planner(file_name: str = "test", g_weight: float = 0.5, h_weight: float = 0.5, costmap_file: str = "",
+=======
+def state_lattice_planner(n: int, m: int, file_name: str = "test", g_weight: float = 0.5, h_weight: float = 0.5,
+                          costmap_file: str = "",
+>>>>>>> origin/multi-processing
                           start_pos: tuple = (20, 10, 0), goal_pos: tuple = (20, 280, 0),
                           initial_heading: float = math.pi / 2, padding: int = 0,
                           turning_radius: int = 8, vel: int = 10, num_headings: int = 8,
@@ -188,10 +196,13 @@ def state_lattice_planner(file_name: str = "test", g_weight: float = 0.5, h_weig
                           save_animation: bool = False, smooth_path: bool = False, replan: bool = False, save_costmap: bool = False):
     global at_goal
     at_goal = False
+=======
+                          Kp: float = 3, Ki: float = 0.08, Kd: float = 0.5, inf_stream: bool = False,
+                          save_animation: bool = False, smooth_path: bool = False, replan: bool = False,
+                          horizon: int = np.inf):
+>>>>>>> origin/multi-processing
     # PARAM SETUP
     # --- costmap --- #
-    n = 300  # channel height
-    m = 40  # channel width
     load_costmap_file = costmap_file
     ship_vertices = np.array([[-1, -4],
                               [1, -4],
@@ -208,10 +219,10 @@ def state_lattice_planner(file_name: str = "test", g_weight: float = 0.5, h_weig
                 costmap_obj.update2(obstacle_penalty)
     else:
         # initialize costmap
-        costmap_obj = CostMap(n, m, obstacle_penalty)
+        costmap_obj = CostMap(n, m, obstacle_penalty, inf_stream)
 
         # generate random obstacles
-        costmap_obj.generate_obstacles(start_pos, goal_pos, num_obs, min_r, max_r,
+        costmap_obj.generate_obstacles(start_pos[1], goal_pos[1], num_obs, min_r, max_r,
                                        upper_offset, lower_offset, allow_overlap)
 
     orig_obstacles = costmap_obj.obstacles.copy()
@@ -230,6 +241,9 @@ def state_lattice_planner(file_name: str = "test", g_weight: float = 0.5, h_weig
     a_star = AStar(g_weight, h_weight, cmap=costmap_obj,
                    primitives=prim, ship=ship, first_initial_heading=initial_heading)
 
+    # compute current goal
+    curr_goal = (goal_pos[0], min(goal_pos[1], (start_pos[1] + horizon)), goal_pos[2])
+
     t0 = time.clock()
     worked, smoothed_edge_path, nodes_visited, x1, y1, x2, y2, orig_path, path_cost = \
         a_star.search(start_pos, goal_pos, swath_dict, smooth_path)
@@ -238,45 +252,37 @@ def state_lattice_planner(file_name: str = "test", g_weight: float = 0.5, h_weig
     print("Time elapsed: ", init_plan_time)
     print("Hz", 1 / init_plan_time)
     # print("smoothed path", smoothed_edge_path)
+=======
+    worked, smoothed_edge_path, nodes_visited, x1, y1, x2, y2, orig_path = \
+        a_star.search(start_pos, curr_goal, swath_dict, smooth_path)
+
+    t1 = time.clock() - t0
+    print("Time elapsed: ", t1)
+    print("Hz", 1 / t1)
+>>>>>>> origin/multi-processing
     print("NODES VISITED", len(nodes_visited))
 
-    recomputed_original_cost, og_length = costmap_obj.compute_path_cost(path=orig_path, ship=ship,
-                                                                        num_headings=prim.num_headings,
-                                                                        reverse_path=True)
-    smoothed_cost, smooth_length = costmap_obj.compute_path_cost(path=smoothed_edge_path.copy(), ship=ship,
-                                                                 num_headings=prim.num_headings, reverse_path=True)
-    straight_path_cost, straight_length = costmap_obj.compute_path_cost(path=[start_pos, goal_pos],
-                                                                        num_headings=prim.num_headings, ship=ship)
-    print("\nPath cost:"
-          "\n\toriginal path:  {:.4f}"
-          "\n\twith smoothing: {:.4f}"
-          "\n\tstraight path:  {:.4f}\n".format(recomputed_original_cost, smoothed_cost, straight_path_cost))
-    print("\nPath length:"
-          "\n\toriginal path:  {:.4f}"
-          "\n\twith smoothing: {:.4f}"
-          "\n\tstraight path:  {:.4f}\n".format(og_length, smooth_length, straight_length))
-    # try:
-    #     assert smoothed_cost <= recomputed_original_cost <= straight_path_cost, \
-    #         "smoothed cost should be less than original cost and original cost should be less than straight cost"
-    # except AssertionError as error:
-    #     print(error)
-    #     costmap_obj.save_to_disk()
-
-    fig1, ax1 = plt.subplots(1, 2, figsize=(5, 10))
-
-    # '''
-    # FIXME: why regenerate again, can't we just do this in the smoothing step????
     if worked:
         path_list = plot_path(ax1, costmap_obj, smoothed_edge_path, initial_heading, turning_radius,
                               smooth_path, prim, x1, x2, y1, y2, nodes_visited, plot=False)
+=======
+        plot_obj = Plot(
+            costmap_obj, prim, ship, nodes_visited, smoothed_edge_path,
+            path_nodes=(x1, y1), smoothing_nodes=(x2, y2), horizon=horizon, inf_stream=inf_stream
+        )
+        path = Path(plot_obj.full_path)
+>>>>>>> origin/multi-processing
     else:
-        path = 0
+        print("Failed to find path at step 0")
+        exit(1)
 
+    # init pymunk sim
     space = pymunk.Space()
     space.add(ship.body, ship.shape)
     space.gravity = (0, 0)
     staticBody = space.static_body  # create a static body for friction constraints
 
+    # create the pymunk objects and the polygon patches for the ice
     polygons = []
     patch_list = []
 
@@ -307,7 +313,7 @@ def state_lattice_planner(file_name: str = "test", g_weight: float = 0.5, h_weig
 
     # From pure pursuit
     state = State(x=start_pos[0], y=start_pos[1], yaw=0.0, v=0.0)
-    target_course = TargetCourse(path.path.T[0], path.path.T[1])
+    target_course = TargetCourse(path.path[0], path.path[1])
     target_ind = target_course.search_target_index(state)
 
     fig2 = plt.figure()
@@ -326,7 +332,9 @@ def state_lattice_planner(file_name: str = "test", g_weight: float = 0.5, h_weig
         while not at_goal:
             i += 1
             yield i
+        raise StopIteration  # should stop animation
 
+<<<<<<< HEAD
     def init():
         # Initialize the matplotlib animation
         ax2.add_patch(ship_patch)
@@ -339,13 +347,31 @@ def state_lattice_planner(file_name: str = "test", g_weight: float = 0.5, h_weig
         return []
 
     def animate(dt, ship_patch, ship, polygons, patch_list, path, swath_dict):
+=======
+    def animate(frame, queue_state, pipe_path):
+>>>>>>> origin/multi-processing
         global at_goal
-        # print(dt)
-        # 20 ms step size
-        for x in range(10):
-            space.step(2 / 100 / 10)
 
+        steps = 10
+        # move simulation forward 20 ms seconds:
+        for x in range(steps):
+            space.step(0.02 / steps)
+
+        # update costmap
+        costmap_obj.update(polygons)
+
+        # get current state
         ship_pos = (ship.body.position.x, ship.body.position.y, 0)  # straight ahead of boat is 0
+
+        # check if ship is at goal
+        if a_star.dist(ship_pos, goal_pos) < 5:
+            at_goal = True
+            print("\nAt goal, shutting down...")
+            plt.close(plot_obj.map_fig)
+            plt.close(plot_obj.sim_fig)
+            queue_state.close()
+            shutdown_event.set()
+            return []
 
         # Pymunk takes left turn as negative and right turn as positive in ship.body.angle
         # To get proper error, we must flip the sign on the angle, as to calculate the setpoint,
@@ -421,6 +447,48 @@ def state_lattice_planner(file_name: str = "test", g_weight: float = 0.5, h_weig
                 # plt.show(block=False)
 
         if ship.path_pos < np.shape(path.path)[0] - 1:
+=======
+        # should play around with frequency at which new state data is sent
+        if frame % 20 == 0 and frame != 0 and replan:
+            try:
+                # empty queue to ensure latest state data is pushed
+                queue_state.get_nowait()
+            except Empty:
+                pass
+
+            # send updated state via queue
+            queue_state.put({
+                'ship_pos': ship_pos,
+                'ship_body_angle': ship.body.angle,
+                'costmap': costmap_obj.cost_map,
+                'obstacles': costmap_obj.obstacles,
+            }, block=False)
+
+        # check if there is a new path
+        if pipe_path.poll():
+            # get new path
+            path_data = pipe_path.recv()
+            print('\nReceived replanned path!\n', path_data['path'])
+
+            plot_obj.update_path(
+                path_data['path'], prim.num_headings, path_data['initial_heading'], ship.turning_radius,
+                path_data['path_nodes'], path_data['smoothing_nodes'], path_data['nodes_expanded']
+            )
+
+            # update to new path
+            path.path = plot_obj.full_path
+            ship.set_path_pos(0)
+
+            # update pure pursuit objects with new path
+            target_course.update(path.path[0], path.path[1])
+            state.update(ship.body.position.x, ship.body.position.y, ship.body.angle)
+
+            # update costmap and map fig
+            plot_obj.update_map(costmap_obj.cost_map, costmap_obj.obstacles)
+            plot_obj.map_fig.canvas.draw()
+
+        if ship.path_pos < np.shape(path.path)[1] - 1:
+>>>>>>> origin/multi-processing
             # Translate linear velocity into direction of ship
             x_vel = math.sin(ship.body.angle)
             y_vel = math.cos(ship.body.angle)
@@ -441,8 +509,8 @@ def state_lattice_planner(file_name: str = "test", g_weight: float = 0.5, h_weig
             if ind != ship.path_pos:
                 # Find heading from current position to look ahead point
                 ship.set_path_pos(ind)
-                dy = path.path[ind][1] - ship.body.position.y
-                dx = path.path[ind][0] - ship.body.position.x
+                dy = path.path[1][ind] - ship.body.position.y
+                dx = path.path[0][ind] - ship.body.position.x
                 angle = np.arctan2(dy, dx) - a_star.first_initial_heading
                 # set setpoint for PID controller
                 pid.setpoint = angle
@@ -471,13 +539,39 @@ def state_lattice_planner(file_name: str = "test", g_weight: float = 0.5, h_weig
     print("START ANIMATION")
     # frames = np.shape(path.path)[0]
     anim = animation.FuncAnimation(fig2,
+=======
+        # at each step animate ship and obstacle patches
+        plot_obj.animate_ship(ship, horizon)
+        plot_obj.animate_obstacles(polygons)
+
+        return plot_obj.get_sim_artists()
+
+    # multiprocessing setup
+    lifo_queue = Queue(maxsize=1)  # LIFO queue to send state information to A*
+    conn_recv, conn_send = Pipe(duplex=False)  # pipe to send new path to controller and for plotting
+    shutdown_event = Event()
+
+    # setup a process to run A*
+    print('\nStart process...')
+    gen_path_process = Process(
+        target=gen_path, args=(lifo_queue, conn_send, shutdown_event, ship, prim,
+                               costmap_obj, swath_dict, a_star, goal_pos, horizon, smooth_path)
+    )
+    gen_path_process.start()
+
+    # start animation in main process
+    anim = animation.FuncAnimation(plot_obj.sim_fig,
+>>>>>>> origin/multi-processing
                                    animate,
                                    init_func=init,
                                    frames=gen,
                                    fargs=(ship_patch, ship, polygons, patch_list, path,
                                           swath_dict,),
+=======
+                                   fargs=(lifo_queue, conn_recv,),
+>>>>>>> origin/multi-processing
                                    interval=20,
-                                   blit=True,
+                                   blit=False,
                                    repeat=False,
                                    save_count=1500
                                    )
@@ -496,6 +590,12 @@ def state_lattice_planner(file_name: str = "test", g_weight: float = 0.5, h_weig
             total_dist_moved = a_star.dist(i['centre'], pos) * (area/2) + total_dist_moved
 
     print("TOTAL DIST MOVED", total_dist_moved)
+=======
+    shutdown_event.set()
+    print('...done with process')
+    gen_path_process.join()
+    print('Completed multiprocessing')
+>>>>>>> origin/multi-processing
 
     # get response from user for saving costmap
     if save_costmap:
@@ -506,13 +606,13 @@ def state_lattice_planner(file_name: str = "test", g_weight: float = 0.5, h_weig
 def main():
     # PARAM SETUP
     # --- costmap --- #
-    n = 300  # channel height
+    n = 100  # channel height
     m = 40  # channel width
     load_costmap_file = "" # "sample_costmaps/gold_test.pk"  # "sample_costmaps/random_obstacles_1.pk"
 
     # --- ship --- #
-    start_pos = (20, 10, 0)  # (x, y, theta)
-    goal_pos = (20, 282, 0)
+    start_pos = (20, 5, 0)  # (x, y, theta)
+    goal_pos = (20, 140, 0)
     initial_heading = math.pi / 2
     turning_radius = 8
     vel = 10  # constant linear velocity of ship
@@ -534,6 +634,9 @@ def main():
     # --- A* --- #
     g_weight = 0.3  # cost = g_weight * g_score + h_weight * h_score
     h_weight = 0.7
+    horizon = 50  # in metres
+    smooth_path = True  # if True run smoothing algorithm as a post processing step
+    replan = True  # if True rerun A* search at each time step
 
     # --- pid --- #
     Kp = 3
@@ -548,12 +651,29 @@ def main():
     file_name = "gifs/replan_test.gif"
 
     state_lattice_planner(file_name=file_name, g_weight=g_weight, h_weight=h_weight, costmap_file=load_costmap_file,
+=======
+    # -- animation -- #
+    inf_stream = True  # if True then simulation will run forever
+    save_animation = False  # if True save animation and don't show it
+    file_name = "test-1.gif"
+
+    # automatic changes to params
+    if inf_stream:
+        upper_offset = -40
+
+    state_lattice_planner(n, m, file_name=file_name, g_weight=g_weight, h_weight=h_weight,
+                          costmap_file=load_costmap_file,
+>>>>>>> origin/multi-processing
                           start_pos=start_pos, goal_pos=goal_pos, initial_heading=initial_heading, padding=padding,
                           turning_radius=turning_radius, vel=vel, num_headings=num_headings,
                           num_obs=num_obs, min_r=min_r, max_r=max_r, upper_offset=upper_offset,
                           lower_offset=lower_offset, allow_overlap=allow_overlap, obstacle_density=obstacle_density,
                           obstacle_penalty=obstacle_penalty, Kp=Kp, Ki=Ki, Kd=Kd,
                           save_animation=save_animation, smooth_path=smooth_path, replan=replan, save_costmap=save_costmap)
+=======
+                          save_animation=save_animation, smooth_path=smooth_path, replan=replan, horizon=horizon,
+                          inf_stream=inf_stream)
+>>>>>>> origin/multi-processing
 
 
 if __name__ == "__main__":
