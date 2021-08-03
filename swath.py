@@ -74,3 +74,37 @@ def view_swath(swath_dict: Swath, key: Tuple = None) -> None:
         print(key)
     plt.imshow(swath_dict[key], origin='lower')
     plt.show()
+
+
+def compute_swath_cost(cost_map: np.ndarray, full_path: np.ndarray,
+                       ship_vertices: np.ndarray, threshold_dist: float = None) -> Tuple[np.ndarray, float, float]:
+    # keep track of swath
+    total_swath = np.zeros_like(cost_map, dtype=bool)
+
+    # keep track of swath cost up until a certain distance specified by threshold_dist
+    partial_swath = np.zeros_like(cost_map, dtype=bool)
+
+    # compute the swath for each point
+    for x, y, theta in full_path.T:
+        x_cell = int(round(x))
+        y_cell = int(round(y))
+
+        R = np.asarray([
+            [np.cos(theta), -np.sin(theta)],
+            [np.sin(theta), np.cos(theta)]
+        ])
+
+        # rotate/translate vertices of ship from origin to sampled point with heading = theta
+        rot_vi = np.round(np.array([[x_cell], [y_cell]]) + R @ ship_vertices.T)
+
+        # draw rotated ship polygon and put occupied cells into a mask
+        rr, cc = draw.polygon(rot_vi[1, :], rot_vi[0, :], shape=cost_map.shape)
+        total_swath[rr, cc] = True
+
+        if threshold_dist is not None and y < threshold_dist:
+            partial_swath[rr, cc] = True
+
+    full_swath_cost = cost_map[total_swath].sum()
+    partial_swath_cost = cost_map[partial_swath].sum()
+
+    return total_swath, full_swath_cost, partial_swath_cost

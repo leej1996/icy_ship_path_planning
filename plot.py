@@ -3,13 +3,14 @@ from typing import List, Tuple, Iterable, Dict
 
 import matplotlib.pyplot as plt
 import numpy as np
-from matplotlib import patches
+from matplotlib import patches, colors
 from pymunk import Poly
 
+import swath
 from cost_map import CostMap
 from primitives import Primitives
 from ship import Ship
-from utils import get_points_on_dubins_path
+from utils import get_points_on_path
 
 
 class Plot:
@@ -44,15 +45,18 @@ class Plot:
             costmap.cost_map, origin='lower'
         )
 
-        # plot the path
-        p_x, p_y, p_theta = self.get_points_on_path(path, prim.num_headings, ship.initial_heading, ship.turning_radius)
+        # sample points along path
+        full_path = get_points_on_path(
+            path, prim.num_headings, ship.initial_heading, ship.turning_radius
+        )
+        self.full_path = np.asarray(full_path)
+
         # show the path on both the map and sim plot
         self.path_line = [
-            *self.map_ax[0].plot(p_x, p_y, 'g'),
-            *self.sim_ax.plot(p_x, p_y, 'r')
+            *self.map_ax[0].plot(self.full_path[0], self.full_path[1], 'g'),
+            *self.sim_ax.plot(self.full_path[0], self.full_path[1], 'r')
         ]
-        # create an array to store all the points along dubins path for later use
-        self.full_path = np.asarray([p_x, p_y, p_theta])
+        # store all the points along dubins path for later use
 
         # plot the nodes along the path and the nodes added from the smoothing step
         self.nodes_line = [
@@ -73,6 +77,17 @@ class Plot:
                     patches.Polygon(obs['vertices'], True, fill=True)
                 )
             )
+
+        # get full swath
+        full_swath, *_ = swath.compute_swath_cost(
+            costmap.cost_map, self.full_path, ship.vertices
+        )
+        swath_im = np.zeros(full_swath.shape + (4,))  # init RGBA array
+        # fill in the RGB values
+        swath_im[:] = colors.to_rgba('m')
+        swath_im[:, :, 3] = full_swath  # set pixel transparency to 0 if pixel value is 0
+        # plot the full swath
+        self.swath_image = self.map_ax[0].imshow(swath_im, origin='lower', alpha=0.3)
 
         # create polygon patch for ship
         vs = np.zeros_like(np.asarray(ship.shape.get_vertices()))
@@ -112,14 +127,13 @@ class Plot:
             #     (left, right, self.prev_ship_pos[1] - 0.5, top + self.prev_ship_pos[1] + 0.5)
             # )
 
-    def update_path(self, path: List, num_headings: int, initial_heading: float, turning_radius: float,
-                    path_nodes: Tuple[List, List], smoothing_nodes: Tuple[List, List], nodes_expanded: List) -> None:
-        # plot the new path
-        p_x, p_y, p_theta = self.get_points_on_path(path, num_headings, initial_heading, turning_radius)
+    def update_path(self, full_path: np.ndarray, full_swath: np.ndarray, path_nodes: Tuple[List, List],
+                    smoothing_nodes: Tuple[List, List], nodes_expanded: List) -> None:
+        self.full_path = full_path
+        p_x, p_y, _ = self.full_path
         # show the new path on both the sim and map plot
         for line in self.path_line:
             line.set_data(p_x, p_y)
-        self.full_path = np.asarray([p_x, p_y, p_theta])
 
         # update the node plot
         self.node_plot_image.set_data(
@@ -129,6 +143,13 @@ class Plot:
         # update the nodes lines
         for line, nodes in zip(self.nodes_line, [path_nodes, smoothing_nodes]):
             line.set_data(nodes[0], nodes[1])
+
+        swath_im = np.zeros(full_swath.shape + (4,))  # init RGBA array
+        # fill in the RGB values
+        swath_im[:] = colors.to_rgba('m')
+        swath_im[:, :, 3] = full_swath  # set pixel transparency to 0 if pixel value is 0
+        # update the swath image
+        self.swath_image.set_data(swath_im)
 
     def animate_ship(self, ship, horizon, move_yaxis_threshold=20) -> None:
         heading = ship.body.angle
@@ -162,26 +183,8 @@ class Plot:
     def get_sim_artists(self) -> Iterable:
         return (
             self.path_line[1], self.ship_patch, *self.obs_patches[1], self.horizon_area,
-            self.map_ax[0].yaxis, self.map_ax[1].yaxis, self.sim_ax.yaxis
+            self.map_ax[0].yaxis, self.map_ax[1].yaxis, self.sim_ax.yaxis, self.swath_image
         )
-
-    @staticmethod
-    def get_points_on_path(path: List, num_headings: int, initial_heading: float, turning_radius: float,
-                           show_prims: bool = False, eps: float = 1e-5) -> Tuple[List, List, List]:
-        p_x, p_y, p_theta = [], [], []
-        # reverse the path
-        path = path[::-1]
-        for i in range(np.shape(path)[0] - 1):
-            p1 = path[i]
-            p2 = path[i + 1]
-            x, y, theta = get_points_on_dubins_path(
-                p1, p2, num_headings, initial_heading, turning_radius, eps
-            )
-            p_x.extend(x)
-            p_y.extend(y)
-            p_theta.extend(theta)
-
-        return p_x, p_y, p_theta
 
     @staticmethod
     def create_node_plot(nodes_expanded: List, shape: Tuple) -> np.ndarray:

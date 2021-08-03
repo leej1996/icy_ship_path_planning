@@ -2,18 +2,14 @@ import math
 import os
 import pickle
 import random
-from typing import List, Tuple
+from typing import List
 
 import cv2
-import dubins
+import matplotlib.pyplot as plt
 import numpy as np
+from matplotlib import patches
 from pymunk import Poly
 from skimage import draw
-from matplotlib import patches
-import matplotlib.pyplot as plt
-
-from ship import Ship
-from utils import heading_to_world_frame
 
 
 class CostMap:
@@ -219,48 +215,6 @@ class CostMap:
                 "vertices": cont[:, 0]
             })
 
-    def compute_path_cost(self, path: List, ship: Ship, num_headings: int, reverse_path=False, eps=1e0) -> Tuple[int, int]:
-        if reverse_path:
-            path.reverse()
-
-        total_path_length = 0
-        total_swath = np.zeros_like(self.cost_map, dtype=bool)
-        for i, vi in enumerate(path[:-1]):
-            vj = path[i + 1]
-            # determine cost between node vi and vj  # FIXME: code duplication with generate_swath and path smoothing
-            theta_0 = heading_to_world_frame(vi[2], ship.initial_heading, num_headings)
-            theta_1 = heading_to_world_frame(vj[2], ship.initial_heading, num_headings)
-            dubins_path = dubins.shortest_path((vi[0], vi[1], theta_0),
-                                               (vj[0], vj[1], theta_1),
-                                               ship.turning_radius - eps)
-
-            configurations, _ = dubins_path.sample_many(1.2)
-
-            # for each point sampled on dubins path, get x, y, theta
-            for config in configurations:
-                x_cell = int(round(config[0]))
-                y_cell = int(round(config[1]))
-
-                theta = config[2] - ship.initial_heading
-                R = np.asarray([
-                    [np.cos(theta), -np.sin(theta)],
-                    [np.sin(theta), np.cos(theta)]
-                ])
-
-                # rotate/translate vertices of ship from origin to sampled point with heading = theta
-                rot_vi = np.round(np.array([[x_cell], [y_cell]]) +
-                                  R @ np.asarray(ship.shape.get_vertices()).T).astype(int)
-
-                # draw rotated ship polygon and put occupied cells into a mask
-                rr, cc = draw.polygon(rot_vi[1, :], rot_vi[0, :], shape=self.cost_map.shape)
-                total_swath[rr, cc] = True
-
-            # update path length
-            total_path_length += dubins_path.path_length()
-
-        total_path_cost = self.cost_map[total_swath].sum() + total_path_length
-        return total_path_cost, total_path_length
-
     def update(self, obstacles: List[Poly]) -> None:
         # clear costmap and obstacles
         self.cost_map[:] = 0
@@ -286,7 +240,7 @@ class CostMap:
                     'radius': r,
                     'on_map': True
                 })
-            else:  # still add the obstacle to the list so ordering stays the same
+            else:  # still add the obstacle to the list so ordering stays the same  # TODO: put poly in the dict object so they are always matched
                 self.obstacles.append({
                     'vertices': poly_vertices,
                     'centre': list(obs.body.position),
