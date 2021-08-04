@@ -19,7 +19,7 @@ class Plot:
     """
     def __init__(self, costmap: CostMap, prim: Primitives, ship: Ship, nodes_expanded: List,
                  path: List, path_nodes: Tuple[List, List], smoothing_nodes: Tuple[List, List], horizon: int,
-                 inf_stream: bool, map_figsize=(5, 10), sim_figsize=(10, 10)):
+                 inf_stream: bool, map_figsize=(5, 10), sim_figsize=(10, 10), y_axis_limit=100):
         # init two fig and ax objects
         # the first is for plotting the updated costmap, node plot, and path
         # the second is for plotting the simulated ship and polygons
@@ -28,10 +28,10 @@ class Plot:
 
         # set the axes limits for plots
         for ax in self.map_ax:
-            ax.axis([0, costmap.m, 0, costmap.n])
+            ax.axis([0, costmap.m, 0, y_axis_limit])
             ax.set_aspect("equal")
             # ax.yaxis.set_animated(True)
-        self.sim_ax.axis([0, costmap.m, 0, costmap.n])
+        self.sim_ax.axis([0, costmap.m, 0, y_axis_limit])
         self.sim_ax.set_aspect("equal")
         # self.sim_ax.yaxis.set_animated(True)
 
@@ -64,15 +64,10 @@ class Plot:
             *self.map_ax[0].plot(*smoothing_nodes, 'gx')
         ]
 
-        # add the patches for the ice and ship to both plots
-        self.obs_patches = [[], []]
+        # add the patches for the ice
+        self.obs_patches = []
         for obs in costmap.obstacles:
-            self.obs_patches[0].append(
-                self.map_ax[0].add_patch(
-                    patches.Polygon(obs['vertices'], True, fill=False)
-                )
-            )
-            self.obs_patches[1].append(
+            self.obs_patches.append(
                 self.sim_ax.add_patch(
                     patches.Polygon(obs['vertices'], True, fill=True)
                 )
@@ -110,22 +105,9 @@ class Plot:
         self.inf_stream = inf_stream
         self.prev_ship_pos = ship.body.position
 
-    def update_map(self, cost_map: np.ndarray, obstacles: Dict) -> None:
+    def update_map(self, cost_map: np.ndarray, obstacles: List[dict]) -> None:
         # update the costmap plot
         self.costmap_image.set_data(cost_map)
-
-        # update the patches on the map plot
-        for idx, obs in enumerate(obstacles):
-            # only add patch if obs is on the map
-            if obs['on_map']:
-                self.obs_patches[0][idx].set_xy(obs['vertices'])
-
-        if self.inf_stream:
-            pass  # TODO
-            # left, right, bottom, top = self.costmap_image.get_extent()
-            # self.costmap_image.set_extent(
-            #     (left, right, self.prev_ship_pos[1] - 0.5, top + self.prev_ship_pos[1] + 0.5)
-            # )
 
     def update_path(self, full_path: np.ndarray, full_swath: np.ndarray, path_nodes: Tuple[List, List],
                     smoothing_nodes: Tuple[List, List], nodes_expanded: List) -> None:
@@ -151,7 +133,7 @@ class Plot:
         # update the swath image
         self.swath_image.set_data(swath_im)
 
-    def animate_ship(self, ship, horizon, move_yaxis_threshold=20) -> None:
+    def animate_ship(self, ship, horizon, move_yaxis_threshold) -> None:
         heading = ship.body.angle
         R = np.asarray([
             [math.cos(heading), -math.sin(heading)], [math.sin(heading), math.cos(heading)]
@@ -171,8 +153,11 @@ class Plot:
             ymin, ymax = self.sim_ax.get_ylim()
             self.sim_ax.set_ylim([ymin + offset[1], ymax + offset[1]])
 
+            for ax in self.map_ax:
+                ax.set_ylim([ymin + offset[1], ymax + offset[1]])
+
     def animate_obstacles(self, polygons: List[Poly]) -> None:
-        for poly, patch in zip(polygons, self.obs_patches[1]):
+        for poly, patch in zip(polygons, self.obs_patches):
             heading = poly.body.angle
             R = np.asarray([
                 [math.cos(heading), -math.sin(heading)], [math.sin(heading), math.cos(heading)]
@@ -182,7 +167,7 @@ class Plot:
 
     def get_sim_artists(self) -> Iterable:
         return (
-            self.path_line[1], self.ship_patch, *self.obs_patches[1], self.horizon_area,
+            self.path_line[1], self.ship_patch, *self.obs_patches, self.horizon_area,
             self.map_ax[0].yaxis, self.map_ax[1].yaxis, self.sim_ax.yaxis, self.swath_image
         )
 

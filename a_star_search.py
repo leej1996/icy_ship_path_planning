@@ -333,7 +333,7 @@ def gen_path(queue_state: Queue, pipe_path: connection.Pipe, shutdown_event: Eve
             if new_path != 'Fail' and len(new_path) > 1:
                 # sample points along path
                 full_path = get_points_on_path(
-                    new_path, prim.num_headings, ship.initial_heading, ship.turning_radius
+                    new_path, prim.num_headings, ship.initial_heading, ship.turning_radius, eps=1e-3
                 )
                 # send new path and node information to pipe
                 print('Sending...')

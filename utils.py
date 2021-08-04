@@ -61,7 +61,7 @@ def get_points_on_dubins_path(p1: Tuple, p2: Tuple, num_headings: int, initial_h
 
 
 def get_points_on_path(path: List, num_headings: int, initial_heading: float, turning_radius: float,
-                       show_prims: bool = False, eps: float = 1e-5) -> Tuple[List, List, List]:
+                       show_prims: bool = False, eps: float = 1e-3) -> Tuple[List, List, List]:
     p_x, p_y, p_theta = [], [], []
     # reverse the path
     path = path[::-1]
