@@ -20,7 +20,7 @@ from utils import heading_to_world_frame, snap_to_lattice, get_points_on_path
 class AStar:
 
     def __init__(self, g_weight: float, h_weight: float, cmap: CostMap,
-                 primitives: Primitives, ship: Ship, first_initial_heading: float, inf_stream: bool = True):
+                 primitives: Primitives, ship: Ship, first_initial_heading: float):
         self.g_weight = g_weight
         self.h_weight = h_weight
         self.cmap = cmap
@@ -282,12 +282,6 @@ class AStar:
         return False
 
     @staticmethod
-    def past_obstacle(node, obs):
-        # also check if ship is past all obstacles (under assumption that goal is always positive y direction from start)
-        # obstacle y coord + radius
-        return node[1] > obs['centre'][1] + obs['radius']  # doesn't account for channel boundaries
-
-    @staticmethod
     def dist(a, b):
         # Euclidean distance
         x1 = a[0]
@@ -298,13 +292,16 @@ class AStar:
 
 
 # method to call AStar in multiprocessing context
-def gen_path(queue_state: Queue, pipe_path: connection.Pipe, shutdown_event: Event, ship: Ship, prim: Primitives,
-             costmap: CostMap, swath_dict: Swath, a_star: AStar, goal_pos: Tuple,
-             horizon: int = np.inf, smooth_path: bool = False, inf_stream: bool = False) -> None:
+def gen_path(
+        queue_state: Queue, pipe_path: connection.Pipe, shutdown_event: Event,
+        ship: Ship, prim: Primitives, costmap: CostMap, swath_dict: Swath, a_star: AStar,
+        goal_pos: Tuple, horizon: int = np.inf, smooth_path: bool = False
+) -> None:
+    planner_times = []  # list to keep track of time it takes for a* to find a path at each step
     while not shutdown_event.is_set():
         try:
             state_data = queue_state.get(block=True, timeout=1)  # blocking call
-            print('\nNEXT STEP')
+            print('\nReceived state data!')
 
             # update ship initial heading
             ship.body.angle = state_data['ship_body_angle']
@@ -326,9 +323,19 @@ def gen_path(queue_state: Queue, pipe_path: connection.Pipe, shutdown_event: Eve
             prim.rotate(-ship.body.angle, orig=True)
             new_swath_dict = update_swath(theta=-ship.body.angle, swath_dict=swath_dict)
 
+            # get a rough idea of planner speed
+            print('Generating next path...')
+            t0 = time.time()
+
             # compute path to goal
             _, new_path, nodes_visited, x1, y1, x2, y2, _ = \
                 a_star.search(ship_pos, snapped_goal, new_swath_dict, smooth_path=smooth_path)
+
+            # save time to list and update average frequency
+            dt = time.time() - t0
+            planner_times.append(dt)
+            print('Time elapsed: ', dt)
+            print('Average planner frequency: {:.4f} Hz'.format(1 / (sum(planner_times) / len(planner_times))))
 
             if new_path != 'Fail' and len(new_path) > 1:
                 # sample points along path

@@ -1,5 +1,5 @@
 import math
-from typing import List, Tuple, Iterable, Dict
+from typing import List, Tuple, Iterable
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -21,27 +21,31 @@ class Plot:
                  path: List, path_nodes: Tuple[List, List], smoothing_nodes: Tuple[List, List], horizon: int,
                  inf_stream: bool, map_figsize=(5, 10), sim_figsize=(10, 10), y_axis_limit=100):
         # init two fig and ax objects
-        # the first is for plotting the updated costmap, node plot, and path
-        # the second is for plotting the simulated ship and polygons
-        self.map_fig, self.map_ax = plt.subplots(1, 2, figsize=map_figsize)
+        # the first is for plotting the updated costmap, node plot, swath, and path
+        # the second is for plotting the simulated ship, polygons
+        self.map_fig, ax = plt.subplots(1, 2, figsize=map_figsize)
+        self.node_ax, self.map_ax = ax
         self.sim_fig, self.sim_ax = plt.subplots(figsize=sim_figsize)
+        self.ax = [self.node_ax, self.map_ax, self.sim_ax]
 
-        # set the axes limits for plots
-        for ax in self.map_ax:
+        # set the axes limits for all plots
+        for ax in self.ax:
             ax.axis([0, costmap.m, 0, y_axis_limit])
-            ax.set_aspect("equal")
-            # ax.yaxis.set_animated(True)
-        self.sim_ax.axis([0, costmap.m, 0, y_axis_limit])
-        self.sim_ax.set_aspect("equal")
-        # self.sim_ax.yaxis.set_animated(True)
+            ax.set_aspect('equal')
+
+        # remove axes ticks and labels to speed up animation
+        self.sim_ax.set_xlabel('')
+        self.sim_ax.set_xticks([])
+        self.sim_ax.set_ylabel('')
+        self.sim_ax.set_yticks([])
 
         # plot the nodes that were expanded
-        self.node_plot_image = self.map_ax[1].imshow(
+        self.node_plot_image = self.node_ax.imshow(
             self.create_node_plot(nodes_expanded, shape=costmap.cost_map.shape), origin='lower'
         )
 
         # plot the costmap
-        self.costmap_image = self.map_ax[0].imshow(
+        self.costmap_image = self.map_ax.imshow(
             costmap.cost_map, origin='lower'
         )
 
@@ -49,19 +53,19 @@ class Plot:
         full_path = get_points_on_path(
             path, prim.num_headings, ship.initial_heading, ship.turning_radius
         )
+        # store all the points along dubins path for later use
         self.full_path = np.asarray(full_path)
 
         # show the path on both the map and sim plot
         self.path_line = [
-            *self.map_ax[0].plot(self.full_path[0], self.full_path[1], 'g'),
+            *self.map_ax.plot(self.full_path[0], self.full_path[1], 'g'),
             *self.sim_ax.plot(self.full_path[0], self.full_path[1], 'r')
         ]
-        # store all the points along dubins path for later use
 
         # plot the nodes along the path and the nodes added from the smoothing step
         self.nodes_line = [
-            *self.map_ax[0].plot(*path_nodes, 'bx'),
-            *self.map_ax[0].plot(*smoothing_nodes, 'gx')
+            *self.map_ax.plot(*path_nodes, 'bx'),
+            *self.map_ax.plot(*smoothing_nodes, 'gx')
         ]
 
         # add the patches for the ice
@@ -82,7 +86,7 @@ class Plot:
         swath_im[:] = colors.to_rgba('m')
         swath_im[:, :, 3] = full_swath  # set pixel transparency to 0 if pixel value is 0
         # plot the full swath
-        self.swath_image = self.map_ax[0].imshow(swath_im, origin='lower', alpha=0.3)
+        self.swath_image = self.map_ax.imshow(swath_im, origin='lower', alpha=0.3)
 
         # create polygon patch for ship
         vs = np.zeros_like(np.asarray(ship.shape.get_vertices()))
@@ -105,7 +109,7 @@ class Plot:
         self.inf_stream = inf_stream
         self.prev_ship_pos = ship.body.position
 
-    def update_map(self, cost_map: np.ndarray, obstacles: List[dict]) -> None:
+    def update_map(self, cost_map: np.ndarray) -> None:
         # update the costmap plot
         self.costmap_image.set_data(cost_map)
 
@@ -151,9 +155,8 @@ class Plot:
         # update y axis if necessary
         if self.inf_stream and ship.body.position.y > move_yaxis_threshold:
             ymin, ymax = self.sim_ax.get_ylim()
-            self.sim_ax.set_ylim([ymin + offset[1], ymax + offset[1]])
 
-            for ax in self.map_ax:
+            for ax in self.ax:
                 ax.set_ylim([ymin + offset[1], ymax + offset[1]])
 
     def animate_obstacles(self, polygons: List[Poly]) -> None:
@@ -166,9 +169,11 @@ class Plot:
             patch.set_xy(vs)
 
     def get_sim_artists(self) -> Iterable:
+        # this is only useful when blit=True in FuncAnimation
+        # which requires returning a list of artists that have changed in the sim fig
         return (
-            self.path_line[1], self.ship_patch, *self.obs_patches, self.horizon_area,
-            self.map_ax[0].yaxis, self.map_ax[1].yaxis, self.sim_ax.yaxis, self.swath_image
+            self.path_line[1], self.ship_patch, *self.obs_patches,
+            self.horizon_area, self.sim_ax.yaxis,
         )
 
     @staticmethod

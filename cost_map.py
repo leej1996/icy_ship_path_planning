@@ -8,7 +8,7 @@ import cv2
 import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib import patches
-from pymunk import Poly, Vec2d
+from pymunk import Poly
 from skimage import draw
 
 
@@ -269,13 +269,13 @@ class CostMap:
         to_add = []
         if self.inf_stream and ship_pos_y > self.new_obs_count * self.new_obs_dist:
             # compute number of new obs to add
-            new_obs_num = max(self.total_obs - len(self.obstacles), len(to_remove))
+            new_obs_num = self.total_obs - len(self.obstacles)
 
             if new_obs_num:
                 start_pos_y = self.new_obs_count * self.new_obs_dist + self.viewable_height
                 to_add = self.generate_obstacles(
                     min_y=start_pos_y, max_y=start_pos_y + self.new_obs_dist, num_obs=new_obs_num,
-                )
+                )  # this does not guarantee returning the number of requested obstacles
 
             # update count
             self.new_obs_count += 1

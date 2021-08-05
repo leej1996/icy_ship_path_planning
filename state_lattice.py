@@ -24,7 +24,6 @@ from ship import Ship
 from utils import create_polygon, Path
 
 random.seed(1)  # make the simulation the same each time, easier to debug
-at_goal = False
 
 
 def state_lattice_planner(n: int, m: int, file_name: str = "test", g_weight: float = 0.5, h_weight: float = 0.5,
@@ -86,11 +85,11 @@ def state_lattice_planner(n: int, m: int, file_name: str = "test", g_weight: flo
     # compute current goal
     curr_goal = (goal_pos[0], min(goal_pos[1], (start_pos[1] + horizon)), goal_pos[2])
 
-    t0 = time.clock()
+    t0 = time.time()
     worked, smoothed_edge_path, nodes_visited, x1, y1, x2, y2, orig_path = \
         a_star.search(start_pos, curr_goal, swath_dict, smooth_path)
 
-    init_plan_time = time.clock() - t0
+    init_plan_time = time.time() - t0
     print("Time elapsed: ", init_plan_time)
     print("Hz", 1 / init_plan_time)
 
@@ -131,7 +130,7 @@ def state_lattice_planner(n: int, m: int, file_name: str = "test", g_weight: flo
 
     # generator to end matplotlib animation when it reaches the goal
     def gen():
-        global at_goal
+        nonlocal at_goal
         i = 0
         while not at_goal:
             i += 1
@@ -139,7 +138,7 @@ def state_lattice_planner(n: int, m: int, file_name: str = "test", g_weight: flo
         raise StopIteration  # should stop animation
 
     def animate(frame, queue_state, pipe_path):
-        global at_goal
+        nonlocal at_goal
 
         steps = 10
         # move simulation forward 20 ms seconds:
@@ -210,6 +209,7 @@ def state_lattice_planner(n: int, m: int, file_name: str = "test", g_weight: flo
             print('\nReceived replanned path!')
 
             # compute swath cost of new path up until the max y distance of old path for a fair comparison
+            # note, we do not include the path length in the cost
             full_swath, full_cost, current_cost = swath.compute_swath_cost(
                 costmap_obj.cost_map, new_path, ship.vertices, threshold_dist=path.path[1][-1]
             )
@@ -256,7 +256,7 @@ def state_lattice_planner(n: int, m: int, file_name: str = "test", g_weight: flo
                 state.update(ship.body.position.x, ship.body.position.y, ship.body.angle)
 
                 # update costmap and map fig
-                plot_obj.update_map(costmap_obj.cost_map, costmap_obj.obstacles)
+                plot_obj.update_map(costmap_obj.cost_map)
                 plot_obj.map_fig.canvas.draw()
 
             else:
@@ -309,6 +309,9 @@ def state_lattice_planner(n: int, m: int, file_name: str = "test", g_weight: flo
     )
     gen_path_process.start()
 
+    # init vars used in animation methods
+    at_goal = False
+
     # start animation in main process
     anim = animation.FuncAnimation(plot_obj.sim_fig,
                                    animate,
@@ -317,7 +320,6 @@ def state_lattice_planner(n: int, m: int, file_name: str = "test", g_weight: flo
                                    interval=20,
                                    blit=False,
                                    repeat=False,
-                                   save_count=1500,
                                    )
 
     if save_animation:
@@ -379,8 +381,8 @@ def main():
     # --- A* --- #
     g_weight = 0.5  # cost = g_weight * g_score + h_weight * h_score
     h_weight = 0.5
-    horizon = 50  # in metres
-    smooth_path = False  # if True run smoothing algorithm as a post processing step
+    horizon = 50  # in metres, needs to be an int for it to be enabled
+    smooth_path = True  # if True run smoothing algorithm as a post processing step
     replan = True  # if True rerun A* search at each time step
 
     # --- pid --- #
@@ -391,10 +393,13 @@ def main():
     # -- animation -- #
     inf_stream = True  # if True then simulation will run forever
     save_animation = False  # if True save animation and don't show it\
-    save_costmap = False
     y_axis_limit = 100  # the y axis limit for the plots
     move_yaxis_threshold = 20  # distance ship has traveled before moving axes
     file_name = "test-1.gif"
+
+    # save state
+    save_costmap = False
+    save_config = False  # TODO
 
     # params for inf stream
     if inf_stream:
