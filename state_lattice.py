@@ -1,4 +1,5 @@
 import math
+import os
 import pickle
 import random
 import time
@@ -23,7 +24,6 @@ from ship import Ship
 from utils import create_polygon, Path
 
 random.seed(1)  # make the simulation the same each time, easier to debug
-at_goal = False
 
 
 def state_lattice_planner(n: int, m: int, file_name: str = "test", g_weight: float = 0.5, h_weight: float = 0.5,
@@ -36,7 +36,8 @@ def state_lattice_planner(n: int, m: int, file_name: str = "test", g_weight: flo
                           obstacle_density: int = 6, obstacle_penalty: float = 3,
                           Kp: float = 3, Ki: float = 0.08, Kd: float = 0.5, inf_stream: bool = False,
                           save_animation: bool = False, save_costmap: bool = False, smooth_path: bool = False,
-                          replan: bool = False, horizon: int = np.inf):
+                          replan: bool = False, horizon: int = np.inf, y_axis_limit: int = 100, buffer: int = None,
+                          move_yaxis_threshold: int = 20, new_obs_dist: int = None):
     # PARAM SETUP
     # --- costmap --- #
     load_costmap_file = costmap_file
@@ -55,10 +56,14 @@ def state_lattice_planner(n: int, m: int, file_name: str = "test", g_weight: flo
                 costmap_obj.update2(obstacle_penalty)
     else:
         # initialize costmap
-        costmap_obj = CostMap(n, m, obstacle_penalty, inf_stream)
+        costmap_obj = CostMap(
+            n, m, obstacle_penalty, min_r, max_r, inf_stream, y_axis_limit, num_obs, new_obs_dist
+        )
 
+        # generate obs up until buffer if in inf stream mode
+        max_y = y_axis_limit + buffer if inf_stream else goal_pos[1]
         # generate random obstacles
-        costmap_obj.generate_obstacles(start_pos[1], goal_pos[1], num_obs, min_r, max_r,
+        costmap_obj.generate_obstacles(start_pos[1], max_y, num_obs,
                                        upper_offset, lower_offset, allow_overlap)
 
     orig_obstacles = costmap_obj.obstacles.copy()
@@ -80,21 +85,21 @@ def state_lattice_planner(n: int, m: int, file_name: str = "test", g_weight: flo
     # compute current goal
     curr_goal = (goal_pos[0], min(goal_pos[1], (start_pos[1] + horizon)), goal_pos[2])
 
-    t0 = time.clock()
+    t0 = time.time()
     worked, smoothed_edge_path, nodes_visited, x1, y1, x2, y2, orig_path = \
         a_star.search(start_pos, curr_goal, swath_dict, smooth_path)
 
-    init_plan_time = time.clock() - t0
+    init_plan_time = time.time() - t0
     print("Time elapsed: ", init_plan_time)
     print("Hz", 1 / init_plan_time)
-
 
     if worked:
         plot_obj = Plot(
             costmap_obj, prim, ship, nodes_visited, smoothed_edge_path.copy(),
-            path_nodes=(x1, y1), smoothing_nodes=(x2, y2), horizon=horizon, inf_stream=inf_stream
+            path_nodes=(x1, y1), smoothing_nodes=(x2, y2), horizon=horizon,
+            inf_stream=inf_stream, y_axis_limit=y_axis_limit
         )
-        path = Path(plot_obj.full_path, smoothed_edge_path)
+        path = Path(plot_obj.full_path)
     else:
         print("Failed to find path at step 0")
         exit(1)
@@ -106,14 +111,13 @@ def state_lattice_planner(n: int, m: int, file_name: str = "test", g_weight: flo
     staticBody = space.static_body  # create a static body for friction constraints
 
     # create the pymunk objects and the polygon patches for the ice
-    polygons = []
-    for obs in costmap_obj.obstacles:
-        polygons.append(
-            create_polygon(
-                space, staticBody, (obs['vertices'] - np.array(obs['centre'])).tolist(),
-                *obs['centre'], density=obstacle_density
-            )
+    polygons = [
+        create_polygon(
+            space, staticBody, (obs['vertices'] - np.array(obs['centre'])).tolist(),
+            *obs['centre'], density=obstacle_density
         )
+        for obs in costmap_obj.obstacles
+    ]
 
     # From pure pursuit
     state = State(x=start_pos[0], y=start_pos[1], yaw=0.0, v=0.0)
@@ -126,30 +130,26 @@ def state_lattice_planner(n: int, m: int, file_name: str = "test", g_weight: flo
 
     # generator to end matplotlib animation when it reaches the goal
     def gen():
-        global at_goal
+        nonlocal at_goal
         i = 0
         while not at_goal:
             i += 1
             yield i
         raise StopIteration  # should stop animation
 
-
     def animate(frame, queue_state, pipe_path):
-        global at_goal
+        nonlocal at_goal
 
         steps = 10
         # move simulation forward 20 ms seconds:
         for x in range(steps):
             space.step(0.02 / steps)
 
-        # update costmap
-        costmap_obj.update(polygons)
-
         # get current state
         ship_pos = (ship.body.position.x, ship.body.position.y, 0)  # straight ahead of boat is 0
 
-        # check if ship is at goal
-        if a_star.dist(ship_pos, goal_pos) < 5:
+        # check if ship has made it past the goal line
+        if ship.body.position.y >= goal_pos[1]:
             at_goal = True
             print("\nAt goal, shutting down...")
             plt.close(plot_obj.map_fig)
@@ -168,6 +168,24 @@ def state_lattice_planner(n: int, m: int, file_name: str = "test", g_weight: flo
 
         # should play around with frequency at which new state data is sent
         if frame % 20 == 0 and frame != 0 and replan:
+            # update costmap and polygons
+            to_add, to_remove = costmap_obj.update(polygons, ship.body.position.y)
+            assert len(costmap_obj.obstacles) <= costmap_obj.total_obs
+
+            # remove polygons if any
+            for obs in to_remove:
+                polygons.remove(obs)
+
+            # add polygons if any
+            polygons.extend([
+                create_polygon(
+                    space, staticBody, (obs['vertices'] - np.array(obs['centre'])).tolist(),
+                    *obs['centre'], density=obstacle_density
+                )
+                for obs in to_add
+            ])
+            print("Total polygons", len(polygons))
+
             try:
                 # empty queue to ensure latest state data is pushed
                 queue_state.get_nowait()
@@ -181,34 +199,56 @@ def state_lattice_planner(n: int, m: int, file_name: str = "test", g_weight: flo
                 'costmap': costmap_obj.cost_map,
                 'obstacles': costmap_obj.obstacles,
             }, block=False)
+            print('\nSent new state data!')
 
         # check if there is a new path
         if pipe_path.poll():
             # get new path
             path_data = pipe_path.recv()
-            new_path = path_data['path']
-            print('\nReceived replanned path!\n', path_data['path'])
+            new_path = path_data['path']  # this is the full path and in the correct order i.e. start -> goal
+            print('\nReceived replanned path!')
 
-            prev_cost, _ = costmap_obj.compute_path_cost(path=path.planned_path.copy(), ship=ship,
-                                                         num_headings=prim.num_headings,
-                                                         reverse_path=True)
-            current_cost, _ = costmap_obj.compute_path_cost(path=new_path.copy(), ship=ship,
-                                                            num_headings=prim.num_headings,
-                                                            reverse_path=True)
+            # compute swath cost of new path up until the max y distance of old path for a fair comparison
+            # note, we do not include the path length in the cost
+            full_swath, full_cost, current_cost = swath.compute_swath_cost(
+                costmap_obj.cost_map, new_path, ship.vertices, threshold_dist=path.path[1][-1]
+            )
+            try:
+                assert full_cost >= current_cost  # sanity check
+            except AssertionError:
+                print("Full and partial swath costs", full_cost, current_cost)
 
-            print('\nPrevious Cost: {prev_cost:.3f}'.format(prev_cost=prev_cost))
-            print('Current Cost: {current_cost:.3f}\n'.format(current_cost=current_cost))
-            print(path.planned_path[0])
-            if current_cost < prev_cost or (((ship_pos[1] + horizon) - path.planned_path[0][1]) > horizon / 2):
-                print("New path better than old path")
+            path_expired = False
+            prev_cost = None
+
+            # check if old path is 'expired' regardless of costs
+            if (path.path[1][-1] - ship_pos[1]) < horizon / 2:
+                path_expired = True
+
+            else:
+                # clip old path based on ship y position
+                old_path = path.clip_path(ship_pos[1])
+
+                # compute cost of clipped old path
+                _, prev_cost, _ = swath.compute_swath_cost(costmap_obj.cost_map, old_path, ship.vertices)
+
+                print('\nPrevious Cost: {prev_cost:.3f}'.format(prev_cost=prev_cost))
+                print('Current Cost: {current_cost:.3f}\n'.format(current_cost=current_cost))
+
+            if path_expired or current_cost < prev_cost:
+                if path_expired:
+                    print("Path expired, applying new path regardless of cost!")
+                else:
+                    print("New path better than old path!")
+                    path.new_path_cnt += 1
+
                 plot_obj.update_path(
-                    path_data['path'], prim.num_headings, path_data['initial_heading'], ship.turning_radius,
-                    path_data['path_nodes'], path_data['smoothing_nodes'], path_data['nodes_expanded']
+                    new_path, full_swath, path_data['path_nodes'],
+                    path_data['smoothing_nodes'], path_data['nodes_expanded']
                 )
 
-                path.update_planned_path(new_path)
                 # update to new path
-                path.update_path(plot_obj.full_path)
+                path.path = new_path
                 ship.set_path_pos(0)
 
                 # update pure pursuit objects with new path
@@ -216,10 +256,12 @@ def state_lattice_planner(n: int, m: int, file_name: str = "test", g_weight: flo
                 state.update(ship.body.position.x, ship.body.position.y, ship.body.angle)
 
                 # update costmap and map fig
-                plot_obj.update_map(costmap_obj.cost_map, costmap_obj.obstacles)
+                plot_obj.update_map(costmap_obj.cost_map)
                 plot_obj.map_fig.canvas.draw()
+
             else:
                 print("Old path better than new path")
+                path.old_path_cnt += 1
 
         if ship.path_pos < np.shape(path.path)[1] - 1:
             # Translate linear velocity into direction of ship
@@ -249,7 +291,7 @@ def state_lattice_planner(n: int, m: int, file_name: str = "test", g_weight: flo
                 pid.setpoint = angle
 
         # at each step animate ship and obstacle patches
-        plot_obj.animate_ship(ship, horizon)
+        plot_obj.animate_ship(ship, horizon, move_yaxis_threshold)
         plot_obj.animate_obstacles(polygons)
 
         return plot_obj.get_sim_artists()
@@ -267,6 +309,9 @@ def state_lattice_planner(n: int, m: int, file_name: str = "test", g_weight: flo
     )
     gen_path_process.start()
 
+    # init vars used in animation methods
+    at_goal = False
+
     # start animation in main process
     anim = animation.FuncAnimation(plot_obj.sim_fig,
                                    animate,
@@ -275,12 +320,10 @@ def state_lattice_planner(n: int, m: int, file_name: str = "test", g_weight: flo
                                    interval=20,
                                    blit=False,
                                    repeat=False,
-                                   save_count=1500,
                                    )
 
     if save_animation:
-        #file_name = "gifs/" + file_name
-        anim.save(file_name, writer=animation.PillowWriter(fps=30))
+        anim.save(os.path.join('gifs', file_name), writer=animation.PillowWriter(fps=30))
     plt.show()
 
     total_dist_moved = 0
@@ -291,9 +334,11 @@ def state_lattice_planner(n: int, m: int, file_name: str = "test", g_weight: flo
         if area > 4:
             total_dist_moved = a_star.dist(i['centre'], pos) * (area/2) + total_dist_moved
 
-    print("TOTAL DIST MOVED", total_dist_moved)
+    print('TOTAL DIST MOVED', total_dist_moved)
+    print('Old/new path counts', '\n\told path', path.old_path_cnt, '\n\tnew path', path.new_path_cnt)
+
     shutdown_event.set()
-    print('...done with process')
+    print('\n...done with process')
     gen_path_process.join()
     print('Completed multiprocessing')
 
@@ -308,7 +353,9 @@ def main():
     # --- costmap --- #
     n = 100  # channel height
     m = 40  # channel width
-    load_costmap_file = "" # "sample_costmaps/gold_test.pk"  # "sample_costmaps/random_obstacles_1.pk"
+    buffer = None
+    new_obs_dist = None
+    load_costmap_file = ""  # "sample_costmaps/gold_test.pk"  # "sample_costmaps/random_obstacles_1.pk"
 
     # --- ship --- #
     start_pos = (20, 5, 0)  # (x, y, theta)
@@ -319,23 +366,23 @@ def main():
     padding = 0  # padding around ship vertices to increase footprint when computing path costs
 
     # --- primitives --- #
-    num_headings = 16
+    num_headings = 8
 
     # --- ice --- #
-    num_obs = 100  # number of random ice obstacles
+    num_obs = 40  # number of random ice obstacles
     min_r = 1  # min ice radius
     max_r = 5
     upper_offset = 20  # offset from top of costmap where ice stops
     lower_offset = 20  # offset from bottom of costmap where ice stops
     allow_overlap = False  # if True allow overlap in ice obstacles
     obstacle_density = 6
-    obstacle_penalty = 1
+    obstacle_penalty = 2
 
     # --- A* --- #
-    g_weight = 0.3  # cost = g_weight * g_score + h_weight * h_score
-    h_weight = 0.7
-    horizon = 50  # in metres
-    smooth_path = False  # if True run smoothing algorithm as a post processing step
+    g_weight = 0.5  # cost = g_weight * g_score + h_weight * h_score
+    h_weight = 0.5
+    horizon = 50  # in metres, needs to be an int for it to be enabled
+    smooth_path = True  # if True run smoothing algorithm as a post processing step
     replan = True  # if True rerun A* search at each time step
 
     # --- pid --- #
@@ -346,12 +393,26 @@ def main():
     # -- animation -- #
     inf_stream = True  # if True then simulation will run forever
     save_animation = False  # if True save animation and don't show it\
-    save_costmap = False
+    y_axis_limit = 100  # the y axis limit for the plots
+    move_yaxis_threshold = 20  # distance ship has traveled before moving axes
     file_name = "test-1.gif"
 
-    # automatic changes to params
+    # save state
+    save_costmap = False
+    save_config = False  # TODO
+
+    # params for inf stream
     if inf_stream:
-        upper_offset = -40
+        # this demo works via the following features
+        # - make a super long costmap
+        # - visualize only a small window and move window as ship moves
+        # - delete obstacles that are no longer visible
+        # - add new obstacles in some buffer region which is above the current window
+        n = 10_000  # make a super long costmap
+        goal_pos = (m/2, n, 0)
+        upper_offset = 0
+        buffer = 50
+        new_obs_dist = 20
 
     state_lattice_planner(n, m, file_name=file_name, g_weight=g_weight, h_weight=h_weight,
                           costmap_file=load_costmap_file,
@@ -361,7 +422,8 @@ def main():
                           lower_offset=lower_offset, allow_overlap=allow_overlap, obstacle_density=obstacle_density,
                           obstacle_penalty=obstacle_penalty, Kp=Kp, Ki=Ki, Kd=Kd,
                           save_animation=save_animation, save_costmap=save_costmap, smooth_path=smooth_path, replan=replan,
-                          horizon=horizon, inf_stream=inf_stream)
+                          horizon=horizon, inf_stream=inf_stream, y_axis_limit=y_axis_limit, buffer=buffer,
+                          move_yaxis_threshold=move_yaxis_threshold, new_obs_dist=new_obs_dist)
 
 
 if __name__ == "__main__":

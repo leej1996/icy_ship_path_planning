@@ -8,20 +8,19 @@ import dubins
 import numpy as np
 from skimage import transform
 
-import swath
 from cost_map import CostMap
 from path_smoothing import path_smoothing
 from primitives import Primitives
 from priority_queue import CustomPriorityQueue
 from ship import Ship
-from swath import Swath
-from utils import heading_to_world_frame, snap_to_lattice
+from swath import Swath, update_swath
+from utils import heading_to_world_frame, snap_to_lattice, get_points_on_path
 
 
 class AStar:
 
     def __init__(self, g_weight: float, h_weight: float, cmap: CostMap,
-                 primitives: Primitives, ship: Ship, first_initial_heading: float, inf_stream: bool = True):
+                 primitives: Primitives, ship: Ship, first_initial_heading: float):
         self.g_weight = g_weight
         self.h_weight = h_weight
         self.cmap = cmap
@@ -32,7 +31,6 @@ class AStar:
 
     def search(self, start: tuple, goal: tuple, swath_dict: Swath, smooth_path: bool = True):
         generation = 0  # number of nodes expanded
-        # print("start", start)
         openSet = {start: generation}  # point_set of nodes considered for expansion
         closedSet = []
         cameFrom = {start: None}
@@ -49,8 +47,6 @@ class AStar:
 
         while len(openSet) != 0:
             node = f_score_open_sorted.get()[0]
-            # print("GENERATION", generation)
-            # print("NODE:", node)
 
             if self.dist(node, goal) < 5 and abs(node[2] - goal[2]) < 0.01:
                 # print("goal", goal)
@@ -73,18 +69,19 @@ class AStar:
 
                 orig_path = path.copy()
 
-                if smooth_path == True:
+                if smooth_path:
                     path.reverse()  # path: start -> goal
                     new_path_length.reverse()
                     # print("path", path)
                     add_nodes = int(len(path))  # number of nodes to add in the path smoothing algorithm
 
                     # cap at adding 10 nodes to reduce run time
-                    if add_nodes > 10:
-                        add_nodes = 10
+                    add_nodes = min(add_nodes, 10)
                     # t0 = time.clock()
-                    smooth_path, x1, y1, x2, y2 = path_smoothing(path, new_path_length, self.cmap, start, goal, self.ship,
-                                                                 add_nodes, self.primitives.num_headings, dist_cuttoff=50)
+                    smooth_path, x1, y1, x2, y2 = path_smoothing(
+                        path, new_path_length, self.cmap, start, goal, self.ship,
+                        add_nodes, self.primitives.num_headings, dist_cuttoff=50
+                    )
                     # t1 = time.clock() - t0
                     # print("smooth time", t1)
                 else:
@@ -97,6 +94,7 @@ class AStar:
                         x1.append(vi[0])
                         y1.append(vi[1])
 
+                print("g_score at goal", g_score[goal])
                 return True, smooth_path, closedSet, x1, y1, x2, y2, orig_path
 
             openSet.pop(node)
@@ -265,7 +263,7 @@ class AStar:
         heading = heading / spacing
         # assert abs(heading - int(heading)) < 1e-4, "heading '{:4f}' should be an integer between 0-7".format(heading)
 
-        return round(result[0], 5), round(result[1], 5), int(heading)
+        return result[0], result[1], int(heading)
 
     @staticmethod
     def is_point_in_set(point, point_set, tol=1e-1):
@@ -284,12 +282,6 @@ class AStar:
         return False
 
     @staticmethod
-    def past_obstacle(node, obs):
-        # also check if ship is past all obstacles (under assumption that goal is always positive y direction from start)
-        # obstacle y coord + radius
-        return node[1] > obs['centre'][1] + obs['radius']  # doesn't account for channel boundaries
-
-    @staticmethod
     def dist(a, b):
         # Euclidean distance
         x1 = a[0]
@@ -300,13 +292,16 @@ class AStar:
 
 
 # method to call AStar in multiprocessing context
-def gen_path(queue_state: Queue, pipe_path: connection.Pipe, shutdown_event: Event, ship: Ship, prim: Primitives,
-             costmap: CostMap, swath_dict: swath.Swath, a_star: AStar, goal_pos: Tuple,
-             horizon: int = np.inf, smooth_path: bool = False, inf_stream: bool = False) -> None:
+def gen_path(
+        queue_state: Queue, pipe_path: connection.Pipe, shutdown_event: Event,
+        ship: Ship, prim: Primitives, costmap: CostMap, swath_dict: Swath, a_star: AStar,
+        goal_pos: Tuple, horizon: int = np.inf, smooth_path: bool = False
+) -> None:
+    planner_times = []  # list to keep track of time it takes for a* to find a path at each step
     while not shutdown_event.is_set():
         try:
             state_data = queue_state.get(block=True, timeout=1)  # blocking call
-            print('\nNEXT STEP')
+            print('\nReceived state data!')
 
             # update ship initial heading
             ship.body.angle = state_data['ship_body_angle']
@@ -326,21 +321,34 @@ def gen_path(queue_state: Queue, pipe_path: connection.Pipe, shutdown_event: Eve
 
             # update primitives and update swath
             prim.rotate(-ship.body.angle, orig=True)
-            new_swath_dict = swath.update_swath(theta=-ship.body.angle, swath_dict=swath_dict)
+            new_swath_dict = update_swath(theta=-ship.body.angle, swath_dict=swath_dict)
+
+            # get a rough idea of planner speed
+            print('Generating next path...')
+            t0 = time.time()
 
             # compute path to goal
             _, new_path, nodes_visited, x1, y1, x2, y2, _ = \
                 a_star.search(ship_pos, snapped_goal, new_swath_dict, smooth_path=smooth_path)
 
+            # save time to list and update average frequency
+            dt = time.time() - t0
+            planner_times.append(dt)
+            print('Time elapsed: ', dt)
+            print('Average planner frequency: {:.4f} Hz'.format(1 / (sum(planner_times) / len(planner_times))))
+
             if new_path != 'Fail' and len(new_path) > 1:
+                # sample points along path
+                full_path = get_points_on_path(
+                    new_path, prim.num_headings, ship.initial_heading, ship.turning_radius, eps=1e-3
+                )
                 # send new path and node information to pipe
                 print('Sending...')
                 pipe_path.send({  # blocking call
-                    'path': new_path,
+                    'path': np.asarray(full_path),
                     'path_nodes': (x1, y1),
                     'smoothing_nodes': (x2, y2),
-                    'nodes_expanded': nodes_visited,
-                    'initial_heading': ship.initial_heading  # for plotting purposes
+                    'nodes_expanded': nodes_visited
                 })
                 print('Sent path!')
 
@@ -353,4 +361,3 @@ def gen_path(queue_state: Queue, pipe_path: connection.Pipe, shutdown_event: Eve
             break
 
     pipe_path.close()
-

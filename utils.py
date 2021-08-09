@@ -26,7 +26,7 @@ def plot_path(ax: Axes, path: List, cost_map: np.ndarray, ship: Ship,
     for i in range(np.shape(path)[0] - 1):
         p1 = path[i]
         p2 = path[i + 1]
-        x, y, theta = get_points_on_dubins_path(p1, p2, num_headings, ship.initial_heading, ship.turning_radius, eps)
+        x, y, theta, _ = get_points_on_dubins_path(p1, p2, num_headings, ship.initial_heading, ship.turning_radius, eps)
         p_x.extend(x)
         p_y.extend(y)
         p_theta.extend(theta)
@@ -46,8 +46,7 @@ def plot_path(ax: Axes, path: List, cost_map: np.ndarray, ship: Ship,
 
 
 def get_points_on_dubins_path(p1: Tuple, p2: Tuple, num_headings: int, initial_heading: float,
-                              turning_radius: float, eps: float = 0., step_size: float = 0.2) -> Tuple[
-    List, List, List]:
+                              turning_radius: float, eps: float = 0., step_size: float = 0.2) -> Tuple[List, List, List, float]:
     theta_0 = heading_to_world_frame(p1[2], initial_heading, num_headings)
     theta_1 = heading_to_world_frame(p2[2], initial_heading, num_headings)
     dubins_path = dubins.shortest_path((p1[0], p1[1], theta_0),
@@ -58,7 +57,25 @@ def get_points_on_dubins_path(p1: Tuple, p2: Tuple, num_headings: int, initial_h
     y = [item[1] for item in configurations]
     theta = [item[2] - initial_heading for item in configurations]
 
-    return x, y, theta
+    return x, y, theta, dubins_path.path_length()
+
+
+def get_points_on_path(path: List, num_headings: int, initial_heading: float, turning_radius: float,
+                       show_prims: bool = False, eps: float = 1e-3) -> Tuple[List, List, List]:
+    p_x, p_y, p_theta = [], [], []
+    # reverse the path
+    path = path[::-1]
+    for i in range(np.shape(path)[0] - 1):
+        p1 = path[i]
+        p2 = path[i + 1]
+        x, y, theta, _ = get_points_on_dubins_path(
+            p1, p2, num_headings, initial_heading, turning_radius, eps
+        )
+        p_x.extend(x)
+        p_y.extend(y)
+        p_theta.extend(theta)
+
+    return p_x, p_y, p_theta
 
 
 def create_polygon(space, staticBody, vertices, x, y, density):
@@ -141,18 +158,24 @@ def snap_to_lattice(start_pos, goal_pos, initial_heading, turning_radius, num_he
 
 
 class Path:
-    '''
+    """
     There are two path objects, the output from a star that the cost can be calculated from (planned_path),
     and the path with many more nodes that the ship actually follows (path).
-    '''
-    def __init__(self, path: np.array, planned_path: np.array):
-        self.path = path
-        self.prev_path = path
-        self.planned_path = planned_path
+    """
 
-    def update_path(self, path: np.array):
-        self.prev_path = self.path
-        self.path = path
+    def __init__(self, path: np.ndarray):
+        self.path = path  # shape is 3 x n
+        self.old_path_cnt = 0  # counters to keep track of how frequently old/new path is better
+        self.new_path_cnt = 0
 
-    def update_planned_path(self, path_list: np.array):
-        self.planned_path = path_list
+    def clip_path(self, ship_pos_y: float):
+        # remove points along path that are less than ship y position
+        return self.path[..., self.path[1] > ship_pos_y]
+
+
+def rotation_matrix(theta) -> np.ndarray:
+    return np.asarray([
+        [np.cos(theta), -np.sin(theta), 0],
+        [np.sin(theta), np.cos(theta), 0],
+        [0, 0, 1]
+    ])

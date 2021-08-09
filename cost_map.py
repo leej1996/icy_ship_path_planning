@@ -5,24 +5,19 @@ import random
 from typing import List, Tuple
 
 import cv2
-import dubins
+import matplotlib.pyplot as plt
 import numpy as np
+from matplotlib import patches
 from pymunk import Poly
 from skimage import draw
-from matplotlib import patches
-import matplotlib.pyplot as plt
-
-from ship import Ship
-from utils import heading_to_world_frame
 
 
 class CostMap:
-    def __init__(self, n: int, m: int, obstacle_penalty: float, inf_stream: bool = False):
+    def __init__(self, n: int, m: int, obstacle_penalty: float, min_r: int = 1, max_r: int = 8,
+                 inf_stream: bool = False, viewable_height: int = None, total_obs: int = None, new_obs_dist: int = None):
         self.n = n
         self.m = m
-        # if inf stream is true then add some buffer at the top of the channel for new obstacles to be generated
-        self.buffer = 40 if inf_stream else 0  # TODO
-        self.cost_map = np.zeros((self.n + self.buffer, self.m))
+        self.cost_map = np.zeros((self.n, self.m))
         self.obstacles = []
         self.grouped_obstacles = []
         self.obstacle_penalty = obstacle_penalty
@@ -30,19 +25,32 @@ class CostMap:
         # apply a cost to the boundaries of the channel
         self.boundary_cost()
 
+        # min and max size of obstacles
+        self.min_r = min_r
+        self.max_r = max_r
+
+        # these attributes are for inf stream
+        self.inf_stream = inf_stream
+        self.viewable_height = viewable_height  # the height of the costmap that is viewable
+        self.total_obs = total_obs  # total number of obstacles
+        self.new_obs_dist = new_obs_dist  # distance traveled before new obstacles are added
+        self.new_obs_count = 0
+
     def boundary_cost(self, exp_factor=1.4, cutoff_factor=0.25) -> None:
         for col in range(self.m):
-            self.cost_map[:, col] = max(0, (np.abs(col - self.m / 2) - cutoff_factor * self.m)) ** exp_factor * self.obstacle_penalty
+            self.cost_map[:, col] = max(
+                0, (np.abs(col - self.m / 2) - cutoff_factor * self.m)
+            ) ** exp_factor * self.obstacle_penalty
 
-    def generate_obstacles(self, start_pos_y, goal_pos_y, num_obs, min_r, max_r,
-                           upper_offset, lower_offset, allow_overlap=True, debug=False) -> List[dict]:
+    def generate_obstacles(self, min_y, max_y, num_obs, upper_offset=0,
+                           lower_offset=0, allow_overlap=False, debug=False) -> List[dict]:
         iteration_cap = 0
         obstacles = []
         while len(obstacles) < num_obs:
             near_obs = False
-            x = random.randint(max_r, self.m - max_r - 1)
-            y = random.randint(start_pos_y + lower_offset + max_r, int(goal_pos_y - upper_offset - max_r))
-            r = random.randint(min_r, max_r)
+            x = random.randint(self.max_r, self.m - self.max_r - 1)
+            y = random.randint(int(min_y + lower_offset), int(max_y - upper_offset))
+            r = random.randint(self.min_r, self.max_r)
 
             if not allow_overlap:
                 # check if obstacles overlap
@@ -219,55 +227,14 @@ class CostMap:
                 "vertices": cont[:, 0]
             })
 
-    def compute_path_cost(self, path: List, ship: Ship, num_headings: int, reverse_path=False, eps=1e0) -> Tuple[int, int]:
-        if reverse_path:
-            path.reverse()
-
-        total_path_length = 0
-        total_swath = np.zeros_like(self.cost_map, dtype=bool)
-        for i, vi in enumerate(path[:-1]):
-            vj = path[i + 1]
-            # determine cost between node vi and vj  # FIXME: code duplication with generate_swath and path smoothing
-            theta_0 = heading_to_world_frame(vi[2], ship.initial_heading, num_headings)
-            theta_1 = heading_to_world_frame(vj[2], ship.initial_heading, num_headings)
-            dubins_path = dubins.shortest_path((vi[0], vi[1], theta_0),
-                                               (vj[0], vj[1], theta_1),
-                                               ship.turning_radius - eps)
-
-            configurations, _ = dubins_path.sample_many(1.2)
-
-            # for each point sampled on dubins path, get x, y, theta
-            for config in configurations:
-                x_cell = int(round(config[0]))
-                y_cell = int(round(config[1]))
-
-                theta = config[2] - ship.initial_heading
-                R = np.asarray([
-                    [np.cos(theta), -np.sin(theta)],
-                    [np.sin(theta), np.cos(theta)]
-                ])
-
-                # rotate/translate vertices of ship from origin to sampled point with heading = theta
-                rot_vi = np.round(np.array([[x_cell], [y_cell]]) +
-                                  R @ np.asarray(ship.shape.get_vertices()).T).astype(int)
-
-                # draw rotated ship polygon and put occupied cells into a mask
-                rr, cc = draw.polygon(rot_vi[1, :], rot_vi[0, :], shape=self.cost_map.shape)
-                total_swath[rr, cc] = True
-
-            # update path length
-            total_path_length += dubins_path.path_length()
-
-        total_path_cost = self.cost_map[total_swath].sum() + total_path_length
-        return total_path_cost, total_path_length
-
-    def update(self, obstacles: List[Poly]) -> None:
+    def update(self, obstacles: List[Poly], ship_pos_y: float = None) -> Tuple[List[dict], List[Poly]]:
         # clear costmap and obstacles
         self.cost_map[:] = 0
         self.obstacles = []
         # apply a cost to the boundaries of the channel
         self.boundary_cost()
 
+        to_remove = []  # list to keep of polys that need to be deleted
         # update obstacles based on new positions
         for obs in obstacles:
             poly_vertices = np.asarray(
@@ -277,22 +244,43 @@ class CostMap:
             # recompute the obstacle radius
             r = self.compute_polygon_diameter(poly_vertices) / 2
 
-            # compute the cost and update the costmap
-            if self.populate_costmap(centre_coords=list(obs.body.position), radius=r, polygon=poly_vertices):
+            # remove obstacle if it is out of sight behind ship
+            if (
+                self.inf_stream
+                and self.new_obs_count > 2
+                and obs.body.position.y
+                < (ship_pos_y - self.new_obs_dist - r)
+            ):
+                to_remove.append(obs)
+
+            # compute the cost and update the costmap if obstacle is feasible
+            elif self.populate_costmap(centre_coords=list(obs.body.position), radius=r, polygon=poly_vertices):
                 # add the polygon to obstacles list if it is feasible
                 self.obstacles.append({
                     'vertices': poly_vertices,
                     'centre': list(obs.body.position),
-                    'radius': r,
-                    'on_map': True
+                    'radius': r
                 })
-            else:  # still add the obstacle to the list so ordering stays the same
-                self.obstacles.append({
-                    'vertices': poly_vertices,
-                    'centre': list(obs.body.position),
-                    'radius': r,
-                    'on_map': False
-                })
+            else:
+                # if poly is not on costmap then remove
+                to_remove.append(obs)
+
+        # check if need to delete any more obs and generate new ones if necessary
+        to_add = []
+        if self.inf_stream and ship_pos_y > self.new_obs_count * self.new_obs_dist:
+            # compute number of new obs to add
+            new_obs_num = self.total_obs - len(self.obstacles)
+
+            if new_obs_num:
+                start_pos_y = self.new_obs_count * self.new_obs_dist + self.viewable_height
+                to_add = self.generate_obstacles(
+                    min_y=start_pos_y, max_y=start_pos_y + self.new_obs_dist, num_obs=new_obs_num,
+                )  # this does not guarantee returning the number of requested obstacles
+
+            # update count
+            self.new_obs_count += 1
+
+        return to_add, to_remove
 
     def update2(self, obstacle_penalty: float):
         # update attribute
@@ -323,20 +311,18 @@ class CostMap:
 
 def main():
     # initialize costmap
-    costmap = CostMap(n=50, m=50, obstacle_penalty=10)
+    costmap = CostMap(n=320, m=50, obstacle_penalty=10, min_r=10, max_r=20)
 
     # params
     start_pos = (1, 1, 0)
     goal_pos = (20, 49, 0)
     num_obstacles = 1
-    min_radius = 10
-    max_radius = 20
     upper_offset = 1
     lower_offset = 1
 
     # generate random obstacles
     costmap.generate_obstacles(start_pos[1], goal_pos[1], num_obstacles,
-                               min_radius, max_radius, upper_offset, lower_offset, debug=True)
+                               upper_offset, lower_offset, debug=True)
 
 
 if __name__ == "__main__":

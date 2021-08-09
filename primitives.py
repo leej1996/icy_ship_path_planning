@@ -4,7 +4,7 @@ from typing import Tuple, List, Dict
 import matplotlib.pyplot as plt
 import numpy as np
 
-from utils import get_points_on_dubins_path
+from utils import get_points_on_dubins_path, rotation_matrix
 
 
 class Primitives:
@@ -46,7 +46,7 @@ class Primitives:
                 dxdy = (R @ np.asarray([np.cos(heading), np.sin(heading)])) * arrow_length
                 arrow(x=xy[0], y=xy[1], dx=dxdy[0], dy=dxdy[1])
 
-                x, y, _ = get_points_on_dubins_path(origin, edge, self.num_headings, theta, turning_radius, eps)
+                x, y, _, _ = get_points_on_dubins_path(origin, edge, self.num_headings, theta, turning_radius, eps)
                 plt.plot(x, y, 'b')
 
             # plt.savefig(save_fig_prefix + str(origin[2]) + ".png")
@@ -251,13 +251,6 @@ class Primitives:
             print("Num headings '{}' not allowed!".format(num_headings))
             exit(1)
 
-def rotation_matrix(theta) -> np.array:
-    rot_matrix = np.asarray([
-        [np.cos(theta), -np.sin(theta), 0],
-        [np.sin(theta), np.cos(theta), 0],
-        [0, 0, 1]
-    ])
-    return rot_matrix
 
 if __name__ == '__main__':
     # for testing purposes
