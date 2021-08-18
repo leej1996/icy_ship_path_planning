@@ -48,10 +48,8 @@ class AStar:
         while len(openSet) != 0:
             node = f_score_open_sorted.get()[0]
 
-            if self.dist(node, goal) < 5 and abs(node[2] - goal[2]) < 0.01:
-                # print("goal", goal)
-                print("node", node)
-                # print("Found path")
+            if abs(node[1] - goal[1]) < 3 and abs(node[2] - goal[2]) < 0.01:
+                print("Found path!", "node", node, "goal", goal)
 
                 # goal is not exactly the same as node, so when we search for goal (key)
                 # in the dictionary, it has to be the same as node
@@ -95,7 +93,7 @@ class AStar:
                         y1.append(vi[1])
 
                 print("g_score at goal", g_score[goal])
-                return True, smooth_path, closedSet, x1, y1, x2, y2, orig_path
+                return smooth_path, closedSet, x1, y1, x2, y2, orig_path
 
             openSet.pop(node)
             closedSet.append(node)
@@ -119,8 +117,8 @@ class AStar:
                         neighbour[1] - self.ship.max_ship_length / 2 >= 0 and \
                         neighbour[1] + self.ship.max_ship_length / 2 < self.chan_h:
                     # check if point is in closed point_set
-                    neighbour_in_closed_set, closed_set_neighbour = self.is_point_in_set(neighbour, closedSet)
-                    if neighbour_in_closed_set:
+                    closed_set_neighbour = self.is_point_in_set(neighbour, closedSet)
+                    if closed_set_neighbour:
                         continue
 
                     # If near obstacle, check cost map to find cost of swath
@@ -140,9 +138,9 @@ class AStar:
                     # print("cost", cost)
 
                     # check if point is in open set
-                    neighbour_in_open_set, open_set_neighbour = self.is_point_in_set(neighbour, openSet)
+                    open_set_neighbour = self.is_point_in_set(neighbour, openSet)
 
-                    if not neighbour_in_open_set:
+                    if not open_set_neighbour:
                         heuristic_value = self.heuristic(neighbour, goal)
                         openSet[neighbour] = generation
                         cameFrom[neighbour] = node
@@ -164,8 +162,8 @@ class AStar:
                         f_score_open_sorted._update((open_set_neighbour, f_score[open_set_neighbour]), new_f_score)
                         f_score[open_set_neighbour] = new_f_score
             generation += 1
-        print("\nFail")
-        return False, 'Fail', 'Fail', 'Fail', 'Fail', 'Fail', 'Fail', 'Fail'
+        print("\nFailed to find a path!")
+        return False
 
     # helper methods
     def get_swath(self, e, start_pos, swath_dict: Swath):
@@ -269,17 +267,17 @@ class AStar:
     def is_point_in_set(point, point_set, tol=1e-1):
         for curr_point in point_set:
             if AStar.dist(point, curr_point) < tol and point[2] == curr_point[2]:
-                return True, curr_point
-        return False, False
+                return curr_point
+        return False
 
     @staticmethod
     def near_obstacle(node, map_dim, list_of_obstacles, threshold=10):
-        for obs in list_of_obstacles:
-            # check if ship is within radius + threshold squares of the center of obstacle, then do swath
-            if AStar.dist(node, obs['centre']) < obs['radius'] + threshold or \
-                    node[0] < threshold or node[0] > map_dim[0] - threshold:
-                return True
-        return False
+        return any(
+            AStar.dist(node, obs['centre']) < obs['radius'] + threshold
+            or node[0] < threshold
+            or node[0] > map_dim[0] - threshold
+            for obs in list_of_obstacles
+        )
 
     @staticmethod
     def dist(a, b):
@@ -328,8 +326,7 @@ def gen_path(
             t0 = time.time()
 
             # compute path to goal
-            _, new_path, nodes_visited, x1, y1, x2, y2, _ = \
-                a_star.search(ship_pos, snapped_goal, new_swath_dict, smooth_path=smooth_path)
+            search_result = a_star.search(ship_pos, snapped_goal, new_swath_dict, smooth_path=smooth_path)
 
             # save time to list and update average frequency
             dt = time.time() - t0
@@ -337,20 +334,23 @@ def gen_path(
             print('Time elapsed: ', dt)
             print('Average planner frequency: {:.4f} Hz'.format(1 / (sum(planner_times) / len(planner_times))))
 
-            if new_path != 'Fail' and len(new_path) > 1:
-                # sample points along path
-                full_path = get_points_on_path(
-                    new_path, prim.num_headings, ship.initial_heading, ship.turning_radius, eps=1e-3
-                )
-                # send new path and node information to pipe
-                print('Sending...')
-                pipe_path.send({  # blocking call
-                    'path': np.asarray(full_path),
-                    'path_nodes': (x1, y1),
-                    'smoothing_nodes': (x2, y2),
-                    'nodes_expanded': nodes_visited
-                })
-                print('Sent path!')
+            if search_result:
+                new_path, nodes_visited, x1, y1, x2, y2, _ = search_result
+
+                if len(new_path) > 1:
+                    # sample points along path
+                    full_path = get_points_on_path(
+                        new_path, prim.num_headings, ship.initial_heading, ship.turning_radius, eps=1e-3
+                    )
+                    # send new path and node information to pipe
+                    print('Sending...')
+                    pipe_path.send({  # blocking call
+                        'path': np.asarray(full_path),
+                        'path_nodes': (x1, y1),
+                        'smoothing_nodes': (x2, y2),
+                        'nodes_expanded': nodes_visited
+                    })
+                    print('Sent path!')
 
         except queue.Empty:
             # nothing in queue so try again

@@ -86,14 +86,14 @@ def state_lattice_planner(n: int, m: int, file_name: str = "test", g_weight: flo
     curr_goal = (goal_pos[0], min(goal_pos[1], (start_pos[1] + horizon)), goal_pos[2])
 
     t0 = time.time()
-    worked, smoothed_edge_path, nodes_visited, x1, y1, x2, y2, orig_path = \
-        a_star.search(start_pos, curr_goal, swath_dict, smooth_path)
+    search_result = a_star.search(start_pos, curr_goal, swath_dict, smooth_path)
 
     init_plan_time = time.time() - t0
     print("Time elapsed: ", init_plan_time)
     print("Hz", 1 / init_plan_time)
 
-    if worked:
+    if search_result:
+        smoothed_edge_path, nodes_visited, x1, y1, x2, y2, orig_path = search_result
         plot_obj = Plot(
             costmap_obj, prim, ship, nodes_visited, smoothed_edge_path.copy(),
             path_nodes=(x1, y1), smoothing_nodes=(x2, y2), horizon=horizon,
@@ -139,6 +139,10 @@ def state_lattice_planner(n: int, m: int, file_name: str = "test", g_weight: flo
 
     def animate(frame, queue_state, pipe_path):
         nonlocal at_goal
+
+        if plot_obj.paused:
+            time.sleep(0.2)
+            return []
 
         steps = 10
         # move simulation forward 20 ms seconds:
@@ -257,11 +261,14 @@ def state_lattice_planner(n: int, m: int, file_name: str = "test", g_weight: flo
 
                 # update costmap and map fig
                 plot_obj.update_map(costmap_obj.cost_map)
-                plot_obj.map_fig.canvas.draw()
+                plot_obj.animate_map()
+                plot_obj.animate_text(current_cost, path.new_path_cnt, prev_cost,
+                                      path.old_path_cnt, num_nodes=len(path_data['nodes_expanded']))
 
             else:
                 print("Old path better than new path")
                 path.old_path_cnt += 1
+                plot_obj.animate_text(current_cost, path.new_path_cnt, prev_cost, path.old_path_cnt)
 
         if ship.path_pos < np.shape(path.path)[1] - 1:
             # Translate linear velocity into direction of ship

@@ -36,7 +36,7 @@ class CostMap:
         self.new_obs_dist = new_obs_dist  # distance traveled before new obstacles are added
         self.new_obs_count = 0
 
-    def boundary_cost(self, exp_factor=1.4, cutoff_factor=0.25) -> None:
+    def boundary_cost(self, exp_factor=1.2, cutoff_factor=0.30) -> None:
         for col in range(self.m):
             self.cost_map[:, col] = max(
                 0, (np.abs(col - self.m / 2) - cutoff_factor * self.m)

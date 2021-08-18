@@ -2,6 +2,7 @@ import math
 from typing import List, Tuple, Iterable
 
 import matplotlib.pyplot as plt
+from matplotlib.widgets import Button
 import numpy as np
 from matplotlib import patches, colors
 from pymunk import Poly
@@ -17,13 +18,14 @@ class Plot:
     """
     Aggregates all plotting objects into a single class
     """
+
     def __init__(self, costmap: CostMap, prim: Primitives, ship: Ship, nodes_expanded: List,
                  path: List, path_nodes: Tuple[List, List], smoothing_nodes: Tuple[List, List], horizon: int,
                  inf_stream: bool, map_figsize=(5, 10), sim_figsize=(10, 10), y_axis_limit=100):
         # init two fig and ax objects
         # the first is for plotting the updated costmap, node plot, swath, and path
         # the second is for plotting the simulated ship, polygons
-        self.map_fig, ax = plt.subplots(1, 2, figsize=map_figsize)
+        self.map_fig, ax = plt.subplots(1, 2, figsize=map_figsize, sharex='all', sharey='all')
         self.node_ax, self.map_ax = ax
         self.sim_fig, self.sim_ax = plt.subplots(figsize=sim_figsize)
         self.ax = [self.node_ax, self.map_ax, self.sim_ax]
@@ -78,7 +80,7 @@ class Plot:
             )
 
         # get full swath
-        full_swath, *_ = swath.compute_swath_cost(
+        full_swath, full_swath_cost, _ = swath.compute_swath_cost(
             costmap.cost_map, self.full_path, ship.vertices
         )
         swath_im = np.zeros(full_swath.shape + (4,))  # init RGBA array
@@ -108,6 +110,43 @@ class Plot:
 
         self.inf_stream = inf_stream
         self.prev_ship_pos = ship.body.position
+
+        # set up a button for pausing
+        self.paused = False
+        button_ax = plt.axes([0.81, 0.05, 0.1, 0.075])
+        self.bnext = Button(button_ax, 'Pause/Start')
+        self.bnext.on_clicked(self.toggle_pause)
+
+        # create a patch for node plot
+        patch_nodes = patches.Patch(color=self.node_plot_image.cmap(self.node_plot_image.norm(1)))
+        # create a path for swath
+        patch_swath = patches.Patch(color=colors.to_rgba('m'), alpha=0.6)
+        # add legend
+        self.map_fig.legend(
+            (*self.nodes_line, self.path_line[0], patch_nodes, patch_swath),
+            ('path nodes', 'smoothing nodes', 'path', 'expanded nodes', 'swath')  # , loc=(0.5, 0)
+        )
+
+        # add titles
+        self.node_ax.set_title('Node plot')
+        self.map_ax.set_title('Costmap')
+
+        # add a textbox to display relevant metrics
+        self.metrics = [len(nodes_expanded), full_swath_cost, 0, 0, 0]
+        text_str = 'Number nodes: {}' \
+                   '\nNew path\n  - cost: {:.0f}\n  - count: {}' \
+                   '\nOld path\n  - cost: {:.0f}\n  - count: {}' \
+            .format(*self.metrics)
+
+        # place a text box in upper left in axes coords
+        self.map_fig_text = self.map_fig.text(
+            0.02, 0.985, text_str, fontsize=14, verticalalignment='top',
+            bbox={'boxstyle': 'round', 'facecolor': 'wheat', 'alpha': 0.5}
+        )
+
+    def toggle_pause(self, *args, **kwargs):
+        print('Toggled pause:', not self.paused)
+        self.paused = not self.paused
 
     def update_map(self, cost_map: np.ndarray) -> None:
         # update the costmap plot
@@ -155,9 +194,7 @@ class Plot:
         # update y axis if necessary
         if self.inf_stream and ship.body.position.y > move_yaxis_threshold:
             ymin, ymax = self.sim_ax.get_ylim()
-
-            for ax in self.ax:
-                ax.set_ylim([ymin + offset[1], ymax + offset[1]])
+            self.sim_ax.set_ylim([ymin + offset[1], ymax + offset[1]])
 
     def animate_obstacles(self, polygons: List[Poly]) -> None:
         for poly, patch in zip(polygons, self.obs_patches):
@@ -167,6 +204,47 @@ class Plot:
             ])
             vs = np.asarray(poly.get_vertices()) @ R + np.asarray(poly.body.position)
             patch.set_xy(vs)
+
+    def animate_map(self):
+        # update y axis
+        self.map_ax.set_ylim(self.sim_ax.get_ylim())
+
+        # draw artists for map plot
+        for artist in [*self.nodes_line, self.swath_image, self.path_line[0],
+                       self.costmap_image, self.map_ax.yaxis]:
+            self.map_ax.draw_artist(artist)
+
+        # draw artists for node plot
+        for artist in [self.node_plot_image, self.node_ax.yaxis]:
+            self.node_ax.draw_artist(artist)
+
+        self.map_fig.canvas.blit(self.map_fig.bbox)
+        self.map_fig.canvas.flush_events()
+
+    def animate_text(self, new_path_cost: float, new_path_count: int,
+                     old_path_cost: float, old_path_count: Tuple, num_nodes: int = None):
+        if num_nodes is None:
+            num_nodes = self.metrics[0]
+
+        text_str = 'Number nodes: {}' \
+                   '\nNew path\n  - cost: {:.0f}\n  - count: {}'
+
+        if old_path_cost is None:
+            old_path_cost = 'Expired!'
+            text_str += '\nOld path {}\n  - cost: N/A\n  - count: {}'
+        else:
+            text_str += '\nOld path\n  - cost: {:.0f}\n  - count: {}'
+
+        self.metrics = [num_nodes, new_path_cost, new_path_count, old_path_cost, old_path_count]
+        text_str = text_str.format(*self.metrics)
+
+        # update text data
+        self.map_fig_text.set_text(text_str)
+
+        # update figure
+        self.map_fig.draw_artist(self.map_fig_text)
+        self.map_fig.canvas.blit(self.map_fig.bbox)
+        self.map_fig.canvas.flush_events()
 
     def get_sim_artists(self) -> Iterable:
         # this is only useful when blit=True in FuncAnimation
